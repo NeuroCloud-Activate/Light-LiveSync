@@ -58,6 +58,19 @@ It supports:
 
 The bundled plugin is self-contained. Obsidian desktop and mobile devices do not need to install `npm`, `pnpm`, `yarn`, or any separate dependencies.
 
+## Manual Install
+
+For a manual vault install, put the plugin folder at `.obsidian/plugins/light-livesync/`.
+
+That folder must contain these files:
+
+- `manifest.json`
+- `main.js`
+- `sync-worker.js`
+- `styles.css`
+
+The simplest route is to download `light-livesync.zip` from the latest GitHub release and unzip it into `.obsidian/plugins/`. The GitHub repository root also keeps those compiled files available, so copying the repo folder into a vault plugin folder can work as long as those four files remain together.
+
 ## Setup
 
 The setup process is guided inside the plugin. The fields are described where you enter them, so you do not have to memorize the original setup script or decode what each value means.

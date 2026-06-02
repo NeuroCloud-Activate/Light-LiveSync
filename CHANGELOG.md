@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.14
+
+- Tracks the compiled root `main.js` and `sync-worker.js` files so copying the GitHub repo folder into a vault plugin folder can load normally.
+- Clarifies manual installation expectations for the plugin folder.
+
 ## 0.1.13
 
 - Adds a GitHub Actions release workflow that builds, tests, packages, verifies, and publishes release assets from the source repository.

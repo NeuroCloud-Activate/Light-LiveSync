@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 const expectedId = "light-livesync";
 const expectedName = "Light-LiveSync";
-const expectedVersion = "0.1.13";
+const expectedVersion = "0.1.14";
 const expectedMinAppVersion = "1.5.0";
 const expectedFiles = ["main.js", "manifest.json", "styles.css", "sync-worker.js"];
 const expectedZipEntries = expectedFiles.map((file) => `light-livesync/${file}`).sort();
@@ -78,6 +78,10 @@ for (const file of expectedFiles) {
   assert.equal(info.isFile(), true, `${path} must be a file`);
   assert.equal(info.size > 0, true, `${path} must not be empty`);
   await assertNoForbiddenStrings(path);
+
+  const rootFile = await readFile(file);
+  const releaseFile = await readFile(path);
+  assert.deepEqual(rootFile, releaseFile, `${file} must match the packaged release copy`);
 }
 
 const zip = await readFile(zipPath);
