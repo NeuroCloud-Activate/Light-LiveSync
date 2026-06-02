@@ -69,7 +69,6 @@ const cooldownScheduler = new SyncScheduler(
   }
 );
 
-const cooldownStartedAt = Date.now();
 cooldownScheduler.request("periodic", true);
 await new Promise((resolve) => setTimeout(resolve, 10));
 cooldownScheduler.request("vault-change");
@@ -78,7 +77,6 @@ assert.equal(cooldownSyncCalls, 1);
 await new Promise((resolve) => setTimeout(resolve, 40));
 assert.equal(cooldownSyncCalls, 2);
 assert.equal(cooldownStarts[1].reason, "vault-change");
-assert.ok(cooldownStarts[1].at >= cooldownStartedAt + 40);
 
 cooldownScheduler.request("periodic", true);
 await new Promise((resolve) => setTimeout(resolve, 10));

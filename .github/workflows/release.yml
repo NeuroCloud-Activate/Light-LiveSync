@@ -10,6 +10,9 @@ permissions:
   id-token: write
   attestations: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   release:
     name: Build, attest, and publish
