@@ -232,6 +232,7 @@ const protectedSettings = JSON.parse(vault.files.get(".obsidian/plugins/ai-helpe
 
 assert.equal(protectedSettingsResult.applied, 0);
 assert.equal(protectedSettingsResult.merged, 1);
+assert.deepEqual(protectedSettingsResult.preservedLocalSettingsPaths, [".obsidian/plugins/ai-helper/data.json"]);
 assert.equal(protectedSettings.apiKey, "local-api-key");
 assert.equal(protectedSettings.token, "local-token");
 assert.deepEqual(protectedSettings.commands, ["local command"]);

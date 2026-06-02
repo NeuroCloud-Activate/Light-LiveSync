@@ -827,7 +827,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!(await this.ensureCredentialsUnlocked())) {
       return;
     }
-    await this.queueCurrentVaultForSync("Manual sync");
+    if (await this.shouldManualSyncPullBeforeFullVaultScan()) {
+      this.log("Manual sync will pull the existing remote vault before uploading this additional device's local files.");
+    } else {
+      await this.queueCurrentVaultForSync("Manual sync");
+    }
     this.scheduler.request("manual", true);
   }
 
@@ -1411,6 +1415,15 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       yieldToUi: () => this.yieldToUi()
     }));
     await context.store.markApplied([...result.appliedIds, ...result.skippedIds]);
+    if (result.preservedLocalSettingsPaths.length > 0) {
+      await context.store.queueLocalChanges(result.preservedLocalSettingsPaths.map((path) => ({
+        path,
+        deleted: false
+      })));
+      this.log(
+        `Preserved local secret-like values in ${result.preservedLocalSettingsPaths.length} synced settings file${result.preservedLocalSettingsPaths.length === 1 ? "" : "s"} and queued the repaired settings for upload.`
+      );
+    }
     await this.updateLocalLiveApply(result);
     await this.updateLocalQueue(await context.store.getSummary());
     return result;
@@ -1903,6 +1916,18 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.log(`${label} queued ${changes.length} vault file${changes.length === 1 ? "" : "s"} for fingerprint-checked upload.`);
     await this.yieldToUi();
     return summary;
+  }
+
+  private async shouldManualSyncPullBeforeFullVaultScan(): Promise<boolean> {
+    if (
+      !this.settings.configured ||
+      !this.settings.couchDb.database ||
+      this.getRuntimeSettings().deviceSetupRole !== "additional-device"
+    ) {
+      return false;
+    }
+    const summary = await this.getLocalStore(this.settings.couchDb.database).getSummary();
+    return summary.lastRemoteSeq === "0";
   }
 
   private async listCurrentVaultPathsForSync(): Promise<string[]> {

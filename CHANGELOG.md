@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.36
+
+- Pulls the existing remote vault before doing a full local scan on a freshly added additional device, preventing blank local plugin settings from uploading first.
+- Queues locally preserved API keys, tokens, credentials, auth fields, and command lists for repair upload when a remote settings merge would otherwise blank them.
+- Continues the sync loop automatically when a remote apply creates a repaired settings upload, so the corrected settings can flow back to CouchDB without another manual step.
+
 ## 0.1.35
 
 - Applies Obsidian JSON settings files with a structured JSON merge instead of line-based text merging.

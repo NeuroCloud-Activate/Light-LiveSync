@@ -522,7 +522,7 @@ export class LightweightSyncEngine {
     const appliedProgress = applied
       ? applied.applied + applied.merged + applied.deleted + applied.skipped > 0
       : false;
-    const continueSync = (pendingUpload > 0 && localUploadProgress) || moreRemoteLikely || (pendingApply > 0 && appliedProgress);
+    const continueSync = (pendingUpload > 0 && (localUploadProgress || appliedProgress)) || moreRemoteLikely || (pendingApply > 0 && appliedProgress);
     const localQueue = `Still waiting locally: ${pendingUpload} upload${pendingUpload === 1 ? "" : "s"}, ${pendingApply} remote apply item${pendingApply === 1 ? "" : "s"}.`;
     const remoteCatchUp = moreRemoteLikely
       ? " Remote catch-up is still paging through CouchDB because the last pull filled the 250-document page; the next pass will request the next page."

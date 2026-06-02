@@ -16,6 +16,7 @@ export type LiveVaultApplyResult = {
   waitingReasons: string[];
   skippedReasons: string[];
   failedReasons: string[];
+  preservedLocalSettingsPaths: string[];
   conflictFolder: string;
 };
 
@@ -26,6 +27,11 @@ type LiveVaultApplyOptions = {
   conflictFolder: string;
   shouldApplyPath?(path: string): boolean;
   yieldToUi?(): Promise<void>;
+};
+
+type JsonSettingsMergeResult = {
+  content: string;
+  preservedLocalValues: boolean;
 };
 
 export type LiveVaultTarget = {
@@ -177,32 +183,35 @@ function shouldUseJsonSettingsMerge(path: string, configDir: string): boolean {
   return normalizedPath.startsWith(`${normalizedConfigDir}/`) && normalizedPath.endsWith(".json");
 }
 
-function mergeJsonSettingsValue(current: unknown, incoming: unknown, keyPath: string[] = []): unknown {
+function mergeJsonSettingsValue(current: unknown, incoming: unknown, keyPath: string[] = []): { value: unknown; preservedLocalValues: boolean } {
   const key = keyPath.at(-1) ?? "";
   if (isProtectedSettingsKey(key) && !isEmptySyncValue(current) && isEmptySyncValue(incoming)) {
-    return current;
+    return { value: current, preservedLocalValues: true };
   }
 
   if (isPlainObject(current) && isPlainObject(incoming)) {
     const merged: Record<string, unknown> = { ...current };
+    let preservedLocalValues = false;
     for (const [childKey, incomingValue] of Object.entries(incoming)) {
       if (Object.prototype.hasOwnProperty.call(current, childKey)) {
-        merged[childKey] = mergeJsonSettingsValue(current[childKey], incomingValue, [...keyPath, childKey]);
+        const child = mergeJsonSettingsValue(current[childKey], incomingValue, [...keyPath, childKey]);
+        merged[childKey] = child.value;
+        preservedLocalValues = preservedLocalValues || child.preservedLocalValues;
       } else {
         merged[childKey] = incomingValue;
       }
     }
-    return merged;
+    return { value: merged, preservedLocalValues };
   }
 
   if (Array.isArray(current) && Array.isArray(incoming) && current.length > 0 && incoming.length === 0 && isProtectedSettingsKey(key)) {
-    return current;
+    return { value: current, preservedLocalValues: true };
   }
 
-  return incoming;
+  return { value: incoming, preservedLocalValues: false };
 }
 
-function maybeMergeJsonSettings(path: string, configDir: string, current: string, incoming: string): string | undefined {
+function maybeMergeJsonSettings(path: string, configDir: string, current: string, incoming: string): JsonSettingsMergeResult | undefined {
   if (!shouldUseJsonSettingsMerge(path, configDir)) {
     return undefined;
   }
@@ -210,7 +219,10 @@ function maybeMergeJsonSettings(path: string, configDir: string, current: string
     const currentJson = JSON.parse(current) as unknown;
     const incomingJson = JSON.parse(incoming) as unknown;
     const merged = mergeJsonSettingsValue(currentJson, incomingJson);
-    return `${JSON.stringify(merged, null, 2)}\n`;
+    return {
+      content: `${JSON.stringify(merged.value, null, 2)}\n`,
+      preservedLocalValues: merged.preservedLocalValues
+    };
   } catch {
     return undefined;
   }
@@ -279,12 +291,15 @@ async function applyReadyPreview(
       return;
     }
     if (typeof current === "string" && typeof preview.content === "string") {
-      const merged = maybeMergeJsonSettings(targetPath, configDir, current, preview.content) ??
-        automaticTextMerge(current, preview.content);
+      const jsonSettingsMerge = maybeMergeJsonSettings(targetPath, configDir, current, preview.content);
+      const merged = jsonSettingsMerge?.content ?? automaticTextMerge(current, preview.content);
       if (merged !== current) {
         await backupExistingContent(vault, targetPath, result.conflictFolder, false);
         await writeContent(vault, targetPath, merged);
         result.backedUp++;
+      }
+      if (jsonSettingsMerge?.preservedLocalValues && !result.preservedLocalSettingsPaths.includes(targetPath)) {
+        result.preservedLocalSettingsPaths.push(targetPath);
       }
       result.merged++;
       result.appliedIds.push(preview.id);
@@ -359,6 +374,7 @@ export async function applyReadyPreviewsToLiveVault(
     waitingReasons: [],
     skippedReasons: [],
     failedReasons: [],
+    preservedLocalSettingsPaths: [],
     conflictFolder: options.conflictFolder
   };
 

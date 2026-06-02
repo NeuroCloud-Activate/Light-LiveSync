@@ -566,6 +566,48 @@ assert.equal(applyBacklogCalls, 1);
 assert.equal(applyBacklogOutcome.continueSync, true);
 assert.equal(applyBacklogOutcome.message.includes("More sync work remains"), true);
 
+const applyRepairUploadStore = new MemoryStore([]);
+let applyRepairUploadCalls = 0;
+const applyRepairUploadEngine = new LightweightSyncEngine({
+  getSettings: () => settings,
+  updateRemoteInspection: async () => {},
+  updateLocalQueue: async () => {},
+  getLocalStore: () => applyRepairUploadStore,
+  readLocalFileSnapshot: async () => undefined,
+  buildLocalPushBundle: async () => {
+    throw new Error("Repair upload should be queued for the next pass, not built in the apply pass.");
+  },
+  applyPulledChanges: async () => {
+    applyRepairUploadCalls += 1;
+    applyRepairUploadStore.pendingApply = 0;
+    await applyRepairUploadStore.queueLocalChanges([{ path: ".obsidian/plugins/ai-helper/data.json", deleted: false }]);
+    return { applied: 0, deleted: 0, skipped: 0, waiting: 0, merged: 1, backedUp: 1, conflicted: 0, failed: 0 };
+  },
+  createRemoteClient: () => ({
+    ...fakeClient,
+    async getChangesSince() {
+      return {
+        lastSeq: "repair-seq",
+        changes: [
+          {
+            id: ".obsidian/plugins/ai-helper/data.json",
+            seq: "repair-seq",
+            doc: { _id: ".obsidian/plugins/ai-helper/data.json", _rev: "1-r", type: "plain", path: ".obsidian/plugins/ai-helper/data.json", children: [], mtime: 1, ctime: 1, size: 0 }
+          }
+        ]
+      };
+    }
+  }),
+  log: () => {}
+});
+const applyRepairUploadOutcome = await applyRepairUploadEngine.sync("startup");
+assert.equal(applyRepairUploadOutcome.ok, true);
+assert.equal(applyRepairUploadCalls, 1);
+assert.equal(applyRepairUploadOutcome.continueSync, true);
+assert.equal((await applyRepairUploadStore.getSummary()).pendingPush, 1);
+assert.match(applyRepairUploadOutcome.message, /Still waiting locally: 1 upload/);
+assert.match(applyRepairUploadOutcome.message, /More sync work remains/);
+
 const waitingBacklogStore = new MemoryStore([]);
 waitingBacklogStore.pendingApply = 3;
 const waitingBacklogEngine = new LightweightSyncEngine({
