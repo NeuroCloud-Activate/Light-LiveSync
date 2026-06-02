@@ -60,6 +60,7 @@ function render(settingsPatch) {
     syncNow() {},
     applyPullToVault() {},
     previewQueuedPull() {},
+    clearActivityLog() {},
     saveSettingsAndReschedule() {},
     resetLocalSyncState() {},
     getRuntimeSettings() {
@@ -82,8 +83,11 @@ const unconfigured = render({
     syncsFailed: 1
   }
 });
-assert.match(unconfigured, /Recommended next step/);
-assert.match(unconfigured, /Connect this vault/);
+assert.doesNotMatch(unconfigured, /Recommended next step/);
+assert.match(unconfigured, /Step 1\. Connect this vault/);
+assert.match(unconfigured, /Step 2\. Create or verify the CouchDB database/);
+assert.match(unconfigured, /Step 3\. Check the connection/);
+assert.match(unconfigured, /Step 4\. Add another device/);
 assert.match(unconfigured, /Connect CouchDB/);
 assert.match(unconfigured, /A low-noise vault sync setup/);
 assert.match(unconfigured, /Sync activity/);
@@ -92,11 +96,9 @@ assert.doesNotMatch(unconfigured, /View/);
 assert.doesNotMatch(unconfigured, /current/);
 assert.match(unconfigured, /Connection check/);
 assert.match(unconfigured, /without syncing vault files/);
-assert.match(unconfigured, /Add another device/);
 assert.match(unconfigured, /Generate URI/);
-assert.match(unconfigured, /Create database from terminal/);
 assert.match(unconfigured, /Copy setup command/);
-assert.match(unconfigured, /passphrases are not saved unless setup succeeds/);
+assert.match(unconfigured, /Docker container console for the CouchDB service/);
 assert.doesNotMatch(unconfigured, /Runtime check/);
 assert.doesNotMatch(unconfigured, /Run check/);
 assert.doesNotMatch(unconfigured, /Check device APIs/);
@@ -116,7 +118,8 @@ const locked = render({
   credentialStore: { version: 1 },
   passphrase: ""
 });
-assert.match(locked, /Refresh saved credentials/);
+assert.match(locked, /Saved credentials/);
+assert.match(locked, /could not open them automatically/);
 assert.match(locked, /Update saved credentials/);
 assert.doesNotMatch(locked, /Unlock/);
 
@@ -132,9 +135,10 @@ const firstRun = render({
 });
 assert.match(firstRun, /Check the connection/);
 assert.match(firstRun, /Check connection/);
-assert.match(firstRun, /before syncing files/);
+assert.match(firstRun, /without syncing vault files/);
 
 const failed = render({
+  settingsTab: "activity",
   configured: true,
   couchDb: {
     uri: "http://example.com:5984",
@@ -157,9 +161,9 @@ const failed = render({
     syncsFailed: 1
   }
 });
-assert.match(failed, /Last sync needs attention/);
+assert.match(failed, /Sync activity/);
 assert.match(failed, /CouchDB could not be reached/);
-assert.match(failed, /Try sync again/);
+assert.match(failed, /Queued changes are kept for the next retry/);
 
 const additionalMissingParameters = render({
   configured: true,
@@ -176,7 +180,7 @@ const additionalMissingParameters = render({
     syncParametersPresent: false
   }
 });
-assert.match(additionalMissingParameters, /Use the original device to initialize/);
+assert.match(additionalMissingParameters, /Step 3\. Check the connection/);
 assert.doesNotMatch(additionalMissingParameters, /Initialize remote/);
 assert.match(additionalMissingParameters, /without creating the database or preparing sync parameters/);
 
@@ -197,9 +201,7 @@ const pendingApply = render({
     pendingApply: 2
   }
 });
-assert.match(pendingApply, /Remote changes are ready/);
-assert.match(pendingApply, /Apply next/);
-assert.match(pendingApply, /automatically and backups are created first/);
+assert.match(pendingApply, /Step 4\. Add another device/);
 
 const activity = render({
   settingsTab: "activity",
@@ -216,6 +218,12 @@ const activity = render({
     syncParametersPresent: true
   },
   runtime: {
+    activityLog: [
+      {
+        timestamp: 1700000000000,
+        message: "Direct CouchDB setup failed: HTTP 401"
+      }
+    ],
     lastSyncMetrics: {
       inspectMs: 5,
       pushMs: 12,
@@ -241,6 +249,9 @@ assert.match(activity, /Username/);
 assert.match(activity, /user/);
 assert.match(activity, /Database name/);
 assert.match(activity, /vault/);
+assert.match(activity, /Recent activity/);
+assert.match(activity, /Direct CouchDB setup failed: HTTP 401/);
+assert.match(activity, /Clear/);
 assert.match(activity, /Last sync workload/);
 assert.match(activity, /Uploaded 1 file \(191 B read locally, 1 chunk doc built\)/);
 assert.doesNotMatch(activity, /Advanced sync tuning/);

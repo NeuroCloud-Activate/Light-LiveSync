@@ -25,6 +25,7 @@ export class SetupUriModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
+    contentEl.addClass("light-livesync-modal");
     contentEl.createEl("h2", { text: "Use setup URI" });
     contentEl.createEl("p", {
       text: "Import an existing Self-hosted LiveSync setup link. The plugin keeps the same URI workflow, then stores secrets encrypted locally."

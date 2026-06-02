@@ -129,7 +129,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.statusBar.addClass("light-livesync-status");
     this.statusPresenter = new CalmStatusPresenter<number>({
       now: () => Date.now(),
-      setText: (message) => this.statusBar?.setText(`LightSync: ${message}`),
+      setText: (message) => this.statusBar?.setText(`LLS: ${this.compactStatus(message)}`),
       setTimer: (callback, delayMs) => window.setTimeout(callback, delayMs),
       clearTimer: (timer) => window.clearTimeout(timer)
     }, { minimumVisibleMs: 1000 });
@@ -197,7 +197,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         lastSyncMetrics: {
           ...DEFAULT_SETTINGS.runtime.lastSyncMetrics,
           ...loaded?.runtime?.lastSyncMetrics
-        }
+        },
+        activityLog: loaded?.runtime?.activityLog ?? DEFAULT_SETTINGS.runtime.activityLog
       },
       upstreamSettings: loaded?.upstreamSettings ?? DEFAULT_SETTINGS.upstreamSettings,
       credentialStore: loaded?.credentialStore ?? null,
@@ -386,12 +387,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   async promptForDirectSetup(): Promise<void> {
-    const runtimeSettings = this.getRuntimeSettings();
     const result = await new DirectCouchDbSetupModal(this.app, {
       hostname: this.settings.couchDb.uri,
       database: this.settings.couchDb.database,
       username: this.settings.couchDb.username,
-      password: runtimeSettings.couchDb.password,
+      password: "",
       passphrase: ""
     }).openAndWait();
     if (!result) {
@@ -402,13 +402,12 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   async copyCouchDbSetupCommandFromSettings(): Promise<void> {
     try {
-      const runtimeSettings = this.getRuntimeSettings();
       const command = buildCouchDbSetupCommand({
         hostname: this.settings.couchDb.uri,
         database: this.settings.couchDb.database,
         username: this.settings.couchDb.username,
-        password: runtimeSettings.couchDb.password,
-        passphrase: runtimeSettings.passphrase
+        password: "",
+        passphrase: ""
       });
       await navigator.clipboard.writeText(command);
       this.setStatus("CouchDB setup command copied");
@@ -416,7 +415,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`Could not copy CouchDB setup command: ${message}`);
-      new Notice(`Could not copy CouchDB setup command: ${message}`);
+      new Notice(`Could not copy CouchDB setup command: ${message}`, 9000);
     }
   }
 
@@ -431,7 +430,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`Setup URI generation failed: ${message}`);
-      new Notice(`Setup URI generation failed: ${message}`);
+      new Notice(`Setup URI generation failed: ${message}`, 9000);
     }
   }
 
@@ -459,7 +458,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`Direct CouchDB setup failed: ${message}`);
-      new Notice(`Direct CouchDB setup failed: ${message}`);
+      new Notice(`Direct CouchDB setup failed: ${message}`, 12000);
     }
   }
 
@@ -549,7 +548,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`Setup URI import failed: ${message}`);
-      new Notice(`Setup URI import failed: ${message}`);
+      new Notice(`Setup URI import failed: ${message}`, 12000);
     }
   }
 
@@ -575,7 +574,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`Setup QR import failed: ${message}`);
-      new Notice(`Setup QR import failed: ${message}`);
+      new Notice(`Setup QR import failed: ${message}`, 12000);
     }
   }
 
@@ -661,6 +660,18 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     new Notice("Credentials saved encrypted.");
   }
 
+  async clearActivityLog(): Promise<void> {
+    this.settings = {
+      ...this.settings,
+      runtime: {
+        ...this.settings.runtime,
+        activityLog: []
+      }
+    };
+    await this.saveSettingsAndReschedule();
+    this.setStatus("Activity log cleared");
+  }
+
   async syncNow(): Promise<void> {
     if (!(await this.ensureCredentialsUnlocked())) {
       return;
@@ -690,7 +701,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`CouchDB connection check failed: ${message}`);
-      new Notice(`CouchDB connection check failed: ${message}`);
+      new Notice(`CouchDB connection check failed: ${message}`, 12000);
     }
   }
 
@@ -1611,8 +1622,59 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.statusPresenter?.set(message);
   }
 
+  private compactStatus(message: string): string {
+    const trimmed = message.trim();
+    if (!trimmed) {
+      return "Ready";
+    }
+    if (/loaded/i.test(trimmed)) {
+      return "Loaded";
+    }
+    if (/ready|quiet|no action/i.test(trimmed)) {
+      return "Ready";
+    }
+    if (/batching/i.test(trimmed)) {
+      const seconds = trimmed.match(/(\d+)s/)?.[1];
+      return seconds ? `Batch ${seconds}s` : "Batching";
+    }
+    if (/sync is running|sync queued|connecting|checking|retrying|pushed|pulled|applied/i.test(trimmed)) {
+      return "Syncing";
+    }
+    if (/copied|uri ready|imported|connected|updated|passed|written/i.test(trimmed)) {
+      return "OK";
+    }
+    if (/offline/i.test(trimmed)) {
+      return "Offline";
+    }
+    if (/failed|error|attention|could not|missing|locked|rejected|blocked/i.test(trimmed)) {
+      return "Issue";
+    }
+    return trimmed.length > 18 ? `${trimmed.slice(0, 17).trim()}...` : trimmed;
+  }
+
   private log(message: string): void {
-    console.log(`[Light-LiveSync] ${message}`);
+    const safeMessage = this.redactLogMessage(message);
+    const nextLog = [
+      {
+        timestamp: Date.now(),
+        message: safeMessage
+      },
+      ...(this.settings.runtime.activityLog ?? [])
+    ].slice(0, 20);
+    this.settings = {
+      ...this.settings,
+      runtime: {
+        ...this.settings.runtime,
+        activityLog: nextLog
+      }
+    };
+    console.log(`[Light-LiveSync] ${safeMessage}`);
+  }
+
+  private redactLogMessage(message: string): string {
+    return message
+      .replace(/(password|passphrase)(["'\s:=]+)([^"',\s]+)/gi, "$1$2[hidden]")
+      .replace(/(couchDB_PASSWORD|encryptedPassphrase|configPassphraseStore)(["'\s:=]+)([^"',\s]+)/gi, "$1$2[hidden]");
   }
 
   private logPreviewSummary(summary: ReconstructionBatchSummary): void {

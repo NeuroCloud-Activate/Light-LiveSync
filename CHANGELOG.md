@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5
+
+- Keeps the Connect CouchDB password field blank when reopening setup.
+- Adds a recent activity log to the Sync activity tab so setup and sync errors can be reviewed after short popups disappear.
+- Reorganizes setup into numbered steps and clarifies that the copied setup command should run on the self-hosted server side where CouchDB is reachable.
+- Narrows the setup URI modal and settings layout for easier reading.
+
 ## 0.1.4
 
 - Adds a repo-hosted CouchDB setup helper that can create or verify the database, prepare sync parameters, and print a setup URI.

@@ -139,6 +139,12 @@ export type RuntimeDiagnosticsState = {
   syncsFinished: number;
   syncsFailed: number;
   lastSyncMetrics: RuntimeSyncMetricsState;
+  activityLog: RuntimeActivityLogEntry[];
+};
+
+export type RuntimeActivityLogEntry = {
+  timestamp: number;
+  message: string;
 };
 
 export type RuntimeSyncMetricsState = {
@@ -285,7 +291,8 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
     syncsStarted: 0,
     syncsFinished: 0,
     syncsFailed: 0,
-    lastSyncMetrics: { ...DEFAULT_RUNTIME_SYNC_METRICS }
+    lastSyncMetrics: { ...DEFAULT_RUNTIME_SYNC_METRICS },
+    activityLog: []
   },
   upstreamSettings: {}
 };

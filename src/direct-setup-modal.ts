@@ -24,7 +24,8 @@ export class DirectCouchDbSetupModal extends Modal {
     this.input = {
       ...this.input,
       ...initial,
-      passphrase: initial.passphrase ?? ""
+      passphrase: "",
+      password: ""
     };
   }
 
@@ -38,12 +39,13 @@ export class DirectCouchDbSetupModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
+    contentEl.addClass("light-livesync-modal");
     contentEl.createEl("h2", { text: "Connect CouchDB" });
     contentEl.createEl("p", {
       text: "Enter the same values used by the setup URI generator. The plugin will verify the credentials by opening or creating the database, restrict database access to this CouchDB user, initialise LiveSync sync parameters, and require E2EE before syncing."
     });
     contentEl.createEl("p", {
-      text: "If CouchDB blocks in-app database creation, copy the setup command and run it from a computer that can reach your CouchDB server. It creates or verifies the database, prepares sync parameters, then prints a setup URI that can be pasted back here."
+      text: "If CouchDB blocks in-app database creation, copy the setup command and run it directly on the self-hosted server side where CouchDB is reachable, such as the server terminal or the Docker container console for your CouchDB setup. It creates or verifies the database, prepares sync parameters, then prints a setup URI that can be pasted back here."
     });
 
     this.addTextField("hostname", "192.0.2.10:5984");

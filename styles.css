@@ -3,6 +3,18 @@
   color: var(--text-muted);
 }
 
+.light-livesync-settings {
+  max-width: 760px;
+}
+
+.light-livesync-settings .setting-item {
+  align-items: flex-start;
+}
+
+.light-livesync-settings .setting-item-info {
+  max-width: 620px;
+}
+
 .light-livesync-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -25,4 +37,21 @@
 .light-livesync-tab.is-active {
   color: var(--text-normal);
   border-bottom-color: var(--interactive-accent);
+}
+
+.light-livesync-modal {
+  max-width: min(680px, 100%);
+}
+
+.light-livesync-modal .setting-item {
+  align-items: flex-start;
+}
+
+.light-livesync-modal textarea,
+.light-livesync-modal input {
+  max-width: 100%;
+}
+
+.light-livesync-modal textarea {
+  min-height: 120px;
 }

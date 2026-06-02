@@ -67,13 +67,13 @@ For the first device:
 4. Let the plugin verify the connection.
 5. The plugin creates or verifies the database, prepares sync parameters, and requires E2EE before syncing.
 
-If in-plugin database creation is blocked by CouchDB permissions, CORS, local network rules, or a reverse proxy, use **Copy setup command** in the setup screen. It copies a Deno command that runs this repo's hosted helper script:
+If in-plugin database creation is blocked by CouchDB permissions, CORS, local network rules, or a reverse proxy, use **Copy setup command** in the setup screen. Run the copied command directly on the self-hosted server side where CouchDB is reachable, such as your server terminal, SSH session, or Docker container console for the CouchDB service. It runs this repo's hosted helper script:
 
 ```sh
 deno run -A https://raw.githubusercontent.com/NeuroCloud-Activate/Light-LiveSync/main/utils/couchdb_setupuri.ts
 ```
 
-The copied command fills in `hostname`, `database`, `username`, and any available saved password. Passphrase placeholders are left for you to fill before running it. The helper creates or verifies the database, prepares LiveSync sync parameters, attempts to restrict database access to the named CouchDB user, and prints a setup URI that can be pasted back into **Use setup URI**.
+The copied command fills in `hostname`, `database`, and `username`. Password and passphrase placeholders are left for you to fill before running it. The helper creates or verifies the database, prepares LiveSync sync parameters, attempts to restrict database access to the named CouchDB user, and prints a setup URI that can be pasted back into **Use setup URI**.
 
 For another device:
 
