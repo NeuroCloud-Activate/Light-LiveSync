@@ -109,6 +109,8 @@ npm run check
 
 `npm test` runs the root-safe harness suite for setup URI/QR compatibility, direct CouchDB setup behavior, connection role checks, credential/session cache safety, runtime desktop/mobile capability reporting, runtime evidence report redaction, desktop-only API safety, scheduler backoff, sync engine batching, worker fallback, reconstruction, text merge, status presentation, and bundle shape. Live CouchDB credential tests should be run separately with local environment variables and should not store credentials in source files.
 
+The GitHub Actions workflow runs the same `npm run check` gate for pushes and pull requests.
+
 Build and verify a release folder plus zip:
 
 ```sh
