@@ -587,7 +587,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private commandSpecs(): CommandSpec[] {
     return [
       { id: "sync-now", name: "Sync now", callback: () => void this.syncNow() },
-      { id: "connect-couchdb", name: "Connect CouchDB directly", callback: () => void this.promptForDirectSetup() },
+      { id: "prepare-couchdb-setup-command", name: "Prepare CouchDB setup command", callback: () => void this.promptForDirectSetup() },
       { id: "use-setup-uri", name: "Use setup URI", callback: () => void this.promptForSetupUri() },
       {
         id: "generate-setup-uri-for-additional-device",

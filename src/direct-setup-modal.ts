@@ -3,7 +3,6 @@ import {
   DIRECT_SETUP_FIELD_DESCRIPTIONS,
   buildCouchDbSetupCommand,
   directCouchDbSetupInputFromValueSources,
-  normaliseDirectCouchDbSetupInput,
   type DirectCouchDbSetupInput,
   type DirectCouchDbSetupValueSources
 } from "./direct-setup";
@@ -42,10 +41,10 @@ export class DirectCouchDbSetupModal extends Modal {
     contentEl.addClass("light-livesync-modal");
     contentEl.createEl("h2", { text: "Connect CouchDB" });
     contentEl.createEl("p", {
-      text: "Enter the same values used by the setup URI generator. The plugin will verify the credentials by opening or creating the database, restrict database access to this CouchDB user, initialise LiveSync sync parameters, and require E2EE before syncing."
+      text: "Enter the sync values that should go into the setup URI. The plugin uses these fields to copy a server-side setup command; it does not connect from this window."
     });
     contentEl.createEl("p", {
-      text: "If CouchDB blocks in-app database creation, copy the setup command and run it directly on the self-hosted server side where CouchDB is reachable, such as the server terminal or the Docker container console for your CouchDB setup. It creates or verifies the database, prepares sync parameters, then prints a setup URI that can be pasted back here."
+      text: "Run the copied command directly on the self-hosted server side where CouchDB is reachable, such as the server terminal or the Docker container console for your CouchDB setup. If you are creating a new sync user or database, fill in the optional CouchDB admin variables in that command before running it."
     });
 
     this.addTextField("hostname", "192.0.2.10:5984");
@@ -56,15 +55,7 @@ export class DirectCouchDbSetupModal extends Modal {
 
     new Setting(contentEl)
       .addButton((button) => {
-        button
-          .setButtonText("Connect")
-          .setCta()
-          .onClick(() => {
-            this.closeWith(normaliseDirectCouchDbSetupInput(this.currentInput()));
-          });
-      })
-      .addButton((button) => {
-        button.setButtonText("Copy setup command").onClick(() => {
+        button.setButtonText("Copy setup command").setCta().onClick(() => {
           void this.copySetupCommand();
         });
       })

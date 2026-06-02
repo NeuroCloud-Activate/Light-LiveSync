@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.6
+
+- Removes the misleading Connect action from the CouchDB command-prep modal.
+- Adds optional CouchDB admin credentials to the copied setup command for creating or updating the sync user and database.
+- Improves the server-side setup helper's HTTP 401 guidance and verifies the sync user after setup.
+- Renames the settings action to Prepare command so setup clearly goes through the generated setup URI.
+
 ## 0.1.5
 
 - Keeps the Connect CouchDB password field blank when reopening setup.

@@ -8,6 +8,12 @@ assert.match(script, /requiredEnv\("database"\)/);
 assert.match(script, /requiredEnv\("passphrase"\)/);
 assert.match(script, /requiredEnv\("username"\)/);
 assert.match(script, /requiredEnv\("password"\)/);
+assert.match(script, /optionalEnv\("admin_username"/);
+assert.match(script, /optionalEnv\("admin_password"/);
+assert.match(script, /ensureUser/);
+assert.match(script, /verifySyncUser/);
+assert.match(script, /admin_username and admin_password must be supplied together/);
+assert.match(script, /CouchDB rejected the supplied credentials/);
 assert.match(script, /Deno\.env\.get\(name\)/);
 assert.match(script, /normaliseCouchDbUri/);
 assert.match(script, /ensureDatabase/);
@@ -18,7 +24,7 @@ assert.doesNotMatch(script, /192\.168\./);
 
 console.log(JSON.stringify({
   ok: true,
-  envFields: ["hostname", "database", "passphrase", "username", "password"],
+  envFields: ["admin_username", "admin_password", "hostname", "database", "passphrase", "username", "password"],
   createsDatabase: true,
   preparesSetupUri: true
 }, null, 2));

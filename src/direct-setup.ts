@@ -37,11 +37,11 @@ export const DIRECT_SETUP_FIELD_DESCRIPTIONS: Record<DirectCouchDbSetupField, Di
   },
   username: {
     label: "username",
-    description: "CouchDB account name with permission to read and write the selected database. If the plugin creates the database, it restricts access to this user."
+    description: "CouchDB sync account name for this vault. If this is a new user, fill the admin_username/admin_password placeholders in the copied server-side command."
   },
   password: {
     label: "password",
-    description: "Password for the CouchDB account. It is used to connect, then saved only inside encrypted plugin data."
+    description: "Password for the CouchDB sync account. It is placed into the encrypted setup URI; it is not used as the CouchDB admin password."
   }
 };
 
@@ -51,6 +51,11 @@ export const COUCHDB_SETUP_SCRIPT_URL =
 const SECRET_PLACEHOLDERS: Record<"passphrase" | "password", string> = {
   passphrase: "PASTE_SHARED_E2EE_PASSPHRASE",
   password: "PASTE_COUCHDB_PASSWORD"
+};
+
+const ADMIN_PLACEHOLDERS = {
+  username: "PASTE_COUCHDB_ADMIN_USERNAME",
+  password: "PASTE_COUCHDB_ADMIN_PASSWORD"
 };
 
 export function normaliseDirectCouchDbSetupInput(input: DirectCouchDbSetupInput): DirectCouchDbSetupInput {
@@ -132,6 +137,9 @@ export function buildCouchDbSetupCommand(input: DirectCouchDbSetupInput): string
   };
 
   return [
+    "# Fill admin_username/admin_password when creating a new CouchDB user or database.",
+    `export admin_username=${shellQuote(ADMIN_PLACEHOLDERS.username)}`,
+    `export admin_password=${shellQuote(ADMIN_PLACEHOLDERS.password)}`,
     `export hostname=${shellQuote(commandInput.hostname)}`,
     `export database=${shellQuote(commandInput.database)}`,
     `export passphrase=${shellQuote(commandInput.passphrase)}`,
