@@ -109,6 +109,7 @@ Security is a core part of the design, not an advanced mode.
 - Path obfuscation is enabled by default.
 - Add-device setup URIs are encrypted and should be treated like temporary invite codes.
 - Light-LiveSync keeps its own volatile runtime data and generated preview/staging/conflict folders local-only so sync does not loop on its own changing state.
+- GitHub release assets are built from source in GitHub Actions and include artifact attestations for provenance verification.
 
 Use HTTPS, a trusted VPN, or another protected network path for CouchDB. Vault E2EE protects note content, but CouchDB Basic Authentication over plain HTTP can still expose the CouchDB username and password on the network.
 

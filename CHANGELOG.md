@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.13
+
+- Adds a GitHub Actions release workflow that builds, tests, packages, verifies, and publishes release assets from the source repository.
+- Generates GitHub artifact attestations for `main.js`, `styles.css`, `manifest.json`, `sync-worker.js`, and the release zip.
+
 ## 0.1.12
 
 - Applies pulled remote files in batches by default instead of one-at-a-time.
