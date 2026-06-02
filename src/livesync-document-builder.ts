@@ -8,7 +8,7 @@ const HASH_ENCRYPTED_PREFIX = "+";
 const ENCRYPTED_META_PREFIX = "/\\:";
 const SALT_OF_ID = "a83hrf7f\u0003y7sa8g31";
 const SEED_MURMURHASH = 0x12345678;
-const DEFAULT_TEXT_CHUNK_SIZE = 900;
+const DEFAULT_TEXT_CHUNK_SIZE = 16 * 1024;
 const DEFAULT_BINARY_CHUNK_SIZE = 100 * 1024;
 
 export type LocalFileSnapshot = {

@@ -167,12 +167,12 @@ const fakeClient = {
     return {
       serverVersion: "test",
       databaseName: "stress",
-      documentCount: 1,
+      documentCount: 1 + remoteChanges.length,
       updateSequence: String(cycle),
       syncParametersPresent: true,
       syncParameterSalt: settings.remoteState.syncParameterSalt,
       milestonePresent: false,
-      sample: { total: 0, notes: 0, chunks: 0, system: 0, deleted: 0, unknown: 0 }
+      sample: { total: remoteChanges.length, notes: remoteChanges.length, chunks: 0, system: 0, deleted: 0, unknown: 0 }
     };
   },
   async getChangesSince() {

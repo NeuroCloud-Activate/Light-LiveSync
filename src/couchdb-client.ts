@@ -128,6 +128,8 @@ const SYSTEM_TYPES = new Set<string>([
   ENTRY_TYPES.MILESTONE_INFO
 ]);
 const COUCHDB_REQUEST_TIMEOUT_MS = 20_000;
+const MAX_BULK_DOCS_PER_REQUEST = 100;
+const MAX_BULK_DOCS_BODY_BYTES = 768 * 1024;
 
 function encodeBasicAuth(username: string, password: string): string | undefined {
   if (!username && !password) {
@@ -407,12 +409,15 @@ export class CouchDbClient {
     const docs = chunkDocuments.filter((chunk) => !revisions.has(chunk._id));
     const reused = chunkDocuments.length - docs.length;
     const existingFileRevision = revisions.get(fileDocument._id);
-    docs.push({
+    const fileDoc = {
       ...fileDocument,
       ...(existingFileRevision ? { _rev: existingFileRevision } : {})
-    });
+    };
 
-    const writeResult = this.summariseBulkWrite(await this.bulkDocs(docs), fileDocument._id);
+    const writeResult = this.summariseBulkWrite([
+      ...await this.bulkDocsInBatches(docs),
+      ...await this.bulkDocs([fileDoc])
+    ], fileDocument._id);
 
     return {
       fileId: fileDocument._id,
@@ -521,6 +526,39 @@ export class CouchDbClient {
       return [];
     }
     return this.requestJson<BulkDocumentResult[]>("_bulk_docs", true, "POST", { docs });
+  }
+
+  private async bulkDocsInBatches(docs: LiveSyncDocument[]): Promise<BulkDocumentResult[]> {
+    const results: BulkDocumentResult[] = [];
+    for (const batch of this.splitBulkDocs(docs)) {
+      results.push(...await this.bulkDocs(batch));
+    }
+    return results;
+  }
+
+  private splitBulkDocs(docs: LiveSyncDocument[]): LiveSyncDocument[][] {
+    const batches: LiveSyncDocument[][] = [];
+    let current: LiveSyncDocument[] = [];
+    let currentBytes = 0;
+    const encoder = new TextEncoder();
+
+    for (const doc of docs) {
+      const docBytes = encoder.encode(JSON.stringify(doc)).byteLength + 16;
+      const wouldExceedCount = current.length >= MAX_BULK_DOCS_PER_REQUEST;
+      const wouldExceedBytes = current.length > 0 && currentBytes + docBytes > MAX_BULK_DOCS_BODY_BYTES;
+      if (wouldExceedCount || wouldExceedBytes) {
+        batches.push(current);
+        current = [];
+        currentBytes = 0;
+      }
+      current.push(doc);
+      currentBytes += docBytes;
+    }
+
+    if (current.length > 0) {
+      batches.push(current);
+    }
+    return batches;
   }
 
   private async requestRaw(

@@ -50,10 +50,10 @@ const largeFallbackClient = new OptionalSyncWorkerClient({
 });
 const largeFallbackResult = await largeFallbackClient.buildPushBundle({
   path: "large-fallback.md",
-  content: `${"Large fallback line.\n".repeat(500)}`,
+  content: `${"Large fallback line.\n".repeat(20000)}`,
   ctime: 3,
   mtime: 4,
-  size: 10_500
+  size: 420_000
 }, options);
 
 assert.equal(disabledYields, 1);

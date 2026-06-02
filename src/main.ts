@@ -60,6 +60,12 @@ import {
   verifySessionCredentialReloadProof,
   type SessionCredentialScope
 } from "./session-credential-cache";
+import {
+  isTextSyncPath,
+  shouldScanVaultFolder,
+  shouldSyncVaultPath,
+  type VaultSyncPathOptions
+} from "./vault-scan";
 
 type CommandSpec = {
   id: string;
@@ -70,6 +76,14 @@ type CommandSpec = {
 type PullOperationContext = {
   store: LocalDocumentStore;
   reconstructor: DocumentReconstructor;
+};
+
+type VaultListAdapter = {
+  list?(path: string): Promise<{ files: string[]; folders: string[] }>;
+  exists?(path: string): Promise<boolean>;
+  stat?(path: string): Promise<{ ctime: number; mtime: number; size: number } | null>;
+  read?(path: string): Promise<string>;
+  readBinary?(path: string): Promise<ArrayBuffer>;
 };
 
 function hasLiveApplyActivity(result: LiveVaultApplyResult): boolean {
@@ -1293,6 +1307,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       !this.suppressVaultEventQueue &&
       this.settings.configured &&
       this.settings.syncOnSave &&
+      this.shouldSyncPath(path) &&
       (deleted || modifiedAt === 0 || modifiedAt >= this.vaultEventCutoffMs)
     );
   }
@@ -1567,14 +1582,14 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       return;
     }
 
-    const files = this.app.vault.getFiles();
-    if (files.length === 0) {
+    const paths = await this.listCurrentVaultPathsForSync();
+    if (paths.length === 0) {
       return;
     }
 
     this.setStatus("Scanning vault");
-    const changes = files.map((file) => ({
-      path: file.path,
+    const changes = paths.map((path) => ({
+      path,
       deleted: false
     }));
     const store = this.getLocalStore(this.settings.couchDb.database);
@@ -1584,38 +1599,111 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     await this.yieldToUi();
   }
 
+  private async listCurrentVaultPathsForSync(): Promise<string[]> {
+    const paths = new Set<string>();
+    for (const file of this.app.vault.getFiles()) {
+      const path = normalizePath(file.path);
+      if (this.shouldSyncPath(path)) {
+        paths.add(path);
+      }
+    }
+
+    const adapter = this.app.vault.adapter as VaultListAdapter;
+    if (typeof adapter.list === "function") {
+      await this.collectAdapterPathsForSync(adapter, "", paths);
+    }
+
+    return [...paths].sort();
+  }
+
+  private async collectAdapterPathsForSync(
+    adapter: VaultListAdapter,
+    folder: string,
+    paths: Set<string>
+  ): Promise<void> {
+    const listed = await adapter.list?.(folder);
+    if (!listed) {
+      return;
+    }
+
+    for (const file of listed.files) {
+      const path = normalizePath(file);
+      if (this.shouldSyncPath(path)) {
+        paths.add(path);
+      }
+    }
+
+    for (const childFolder of listed.folders) {
+      const path = normalizePath(childFolder);
+      if (shouldScanVaultFolder(path, this.syncPathOptions())) {
+        await this.yieldToUi();
+        await this.collectAdapterPathsForSync(adapter, path, paths);
+      }
+    }
+  }
+
   private async readLocalFileSnapshot(path: string) {
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) {
+    const normalizedPath = normalizePath(path);
+    if (!this.shouldSyncPath(normalizedPath)) {
       return undefined;
     }
-    const content = this.shouldReadFileAsText(file)
-      ? await this.app.vault.read(file)
-      : await this.app.vault.readBinary(file);
+
+    const file = this.app.vault.getAbstractFileByPath(normalizedPath);
+    if (file instanceof TFile) {
+      const content = this.shouldReadFileAsText(file)
+        ? await this.app.vault.read(file)
+        : await this.app.vault.readBinary(file);
+      return {
+        path: file.path,
+        content,
+        ctime: file.stat.ctime,
+        mtime: file.stat.mtime,
+        size: file.stat.size
+      };
+    }
+
+    const adapter = this.app.vault.adapter as VaultListAdapter;
+    if (typeof adapter.exists === "function" && !(await adapter.exists(normalizedPath))) {
+      return undefined;
+    }
+    if (typeof adapter.read !== "function" || typeof adapter.readBinary !== "function") {
+      return undefined;
+    }
+
+    const stat = await adapter.stat?.(normalizedPath);
+    const content = this.shouldReadPathAsText(normalizedPath)
+      ? await adapter.read(normalizedPath)
+      : await adapter.readBinary(normalizedPath);
+    const fallbackTime = Date.now();
     return {
-      path: file.path,
+      path: normalizedPath,
       content,
-      ctime: file.stat.ctime,
-      mtime: file.stat.mtime,
-      size: file.stat.size
+      ctime: stat?.ctime ?? stat?.mtime ?? fallbackTime,
+      mtime: stat?.mtime ?? stat?.ctime ?? fallbackTime,
+      size: stat?.size ?? (typeof content === "string" ? new TextEncoder().encode(content).byteLength : content.byteLength)
     };
   }
 
   private shouldReadFileAsText(file: TFile): boolean {
-    return new Set([
-      "md",
-      "txt",
-      "json",
-      "canvas",
-      "css",
-      "js",
-      "ts",
-      "yml",
-      "yaml",
-      "csv",
-      "html",
-      "xml"
-    ]).has(file.extension.toLowerCase());
+    return this.shouldReadPathAsText(file.path);
+  }
+
+  private shouldReadPathAsText(path: string): boolean {
+    return isTextSyncPath(path);
+  }
+
+  private shouldSyncPath(path: string): boolean {
+    return shouldSyncVaultPath(path, this.syncPathOptions());
+  }
+
+  private syncPathOptions(): VaultSyncPathOptions {
+    return {
+      configDir: this.app.vault.configDir,
+      pluginId: this.manifest.id,
+      previewExportFolder: this.previewExportFolder(),
+      stagingApplyFolder: this.stagingApplyFolder(),
+      conflictFolder: this.conflictFolder()
+    };
   }
 
   private async buildLocalPushBundle(snapshot: LocalFileSnapshot, options: LiveSyncBuildOptions) {

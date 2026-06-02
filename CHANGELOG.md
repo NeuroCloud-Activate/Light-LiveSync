@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.10
+
+- Expands manual sync to recursively include vault config, hidden files, and other plugin data through the vault adapter.
+- Excludes Light-LiveSync's own volatile runtime data and generated preview/staging/conflict folders to avoid sync loops and credential-state propagation.
+- Uses larger text chunks and batched CouchDB bulk writes so large text bundles and attachments sync without oversized requests.
+- Skips pulling back this device's own first full-vault upload when the remote has no current vault documents.
+- Adds tests for vault scan rules, first-upload pull skipping, and larger fallback chunk/yield behavior.
+
 ## 0.1.9
 
 - Makes manual sync scan and queue the current vault first, so first-time sync uploads existing vault files instead of only already-captured edit events.

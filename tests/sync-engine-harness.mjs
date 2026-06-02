@@ -119,7 +119,7 @@ const fakeClient = {
       syncParametersPresent: true,
       syncParameterSalt: settings.remoteState.syncParameterSalt,
       milestonePresent: false,
-      sample: { total: 0, notes: 0, chunks: 0, system: 0, deleted: 0, unknown: 0 }
+      sample: { total: 1, notes: 1, chunks: 0, system: 0, deleted: 0, unknown: 0 }
     };
   },
   async getChangesSince() {
@@ -189,6 +189,66 @@ assert.ok(outcome.metrics.inspectMs >= 0);
 assert.ok(outcome.metrics.pushMs >= 0);
 assert.ok(outcome.metrics.pullMs >= 0);
 assert.ok(outcome.metrics.applyMs >= 0);
+
+const firstUploadStore = new MemoryStore([
+  { path: "notes/first.md", deleted: false, queuedAt: 1, updatedAt: 1, attempts: 0, nextAttemptAt: 0, lastError: "" }
+]);
+let firstUploadPulled = false;
+let firstUploadInspectCount = 0;
+const firstUploadClient = {
+  ...fakeClient,
+  async inspect() {
+    firstUploadInspectCount += 1;
+    return {
+      serverVersion: "test",
+      databaseName: "syncengine",
+      documentCount: firstUploadInspectCount === 1 ? 1 : 3,
+      updateSequence: firstUploadInspectCount === 1 ? "1" : "3",
+      syncParametersPresent: true,
+      syncParameterSalt: settings.remoteState.syncParameterSalt,
+      milestonePresent: false,
+      sample: firstUploadInspectCount === 1
+        ? { total: 0, notes: 0, chunks: 0, system: 0, deleted: 0, unknown: 0 }
+        : { total: 2, notes: 1, chunks: 1, system: 0, deleted: 0, unknown: 0 }
+    };
+  },
+  async getChangesSince() {
+    firstUploadPulled = true;
+    return { lastSeq: "3", changes: [] };
+  },
+  async putLiveSyncBundle() {
+    return { fileId: "notes/first.md", written: 2, reused: 0, conflicts: 0 };
+  }
+};
+const firstUploadEngine = new LightweightSyncEngine({
+  getSettings: () => ({ ...settings, maxPushChangesPerSync: 10 }),
+  updateRemoteInspection: async () => {},
+  updateLocalQueue: async () => {},
+  getLocalStore: () => firstUploadStore,
+  readLocalFileSnapshot: async (path) => ({
+    path,
+    content: `content for ${path}`,
+    ctime: 1,
+    mtime: 2,
+    size: 10
+  }),
+  buildLocalPushBundle: async (snapshot) => ({
+    fileDocument: { _id: snapshot.path, type: "plain", path: snapshot.path, children: [], ctime: 1, mtime: 2, size: 0 },
+    chunkDocuments: [{ _id: `h:${snapshot.path}`, type: "newnote", data: "chunk" }]
+  }),
+  applyPulledChanges: async () => {
+    throw new Error("Should not apply own first-upload changes.");
+  },
+  createRemoteClient: () => firstUploadClient,
+  log: () => {}
+});
+const firstUploadOutcome = await firstUploadEngine.sync("manual");
+assert.equal(firstUploadOutcome.ok, true);
+assert.equal(firstUploadPulled, false);
+assert.equal(firstUploadStore.lastRemoteSeq, "3");
+assert.equal((await firstUploadStore.getSummary()).pendingApply, 0);
+assert.equal(firstUploadOutcome.metrics.pushedFiles, 1);
+assert.equal(firstUploadOutcome.metrics.pulledChanges, 0);
 
 const retryStore = new MemoryStore([
   { path: "notes/cooling.md", deleted: false, queuedAt: 1, updatedAt: 1, attempts: 1, nextAttemptAt: Date.now() + 600_000, lastError: "offline" },

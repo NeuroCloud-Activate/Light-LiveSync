@@ -195,6 +195,14 @@ export class LightweightSyncEngine {
     metrics.localBytesRead = pushed.localBytesRead;
     metrics.chunkDocsBuilt = pushed.chunkDocsBuilt;
 
+    if (await this.skipPullAfterFirstUpload(client, localStore, inspection, pushed)) {
+      const summary = await localStore.getSummary();
+      await this.host.updateLocalQueue(summary);
+      const pulled = { pulledCount: 0, summary };
+      this.logSyncResult(reason, inspection.databaseName, pushed, 0);
+      return this.syncOutcomeMessage(pushed, pulled, metrics);
+    }
+
     const pullStartedAt = Date.now();
     let pulled = await this.pullRemoteChanges(client, localStore);
     metrics.pullMs = elapsedMs(pullStartedAt);
@@ -328,6 +336,29 @@ export class LightweightSyncEngine {
       outcome.chunkDocsBuilt += single.chunkDocsBuilt;
     }
     return outcome;
+  }
+
+  private async skipPullAfterFirstUpload(
+    client: SyncRemoteClient,
+    localStore: LocalDocumentStore,
+    inspection: RemoteInspection,
+    pushed: PushBatchOutcome
+  ): Promise<boolean> {
+    const wroteLocalChanges = pushed.pushed + pushed.deleted > 0;
+    const remoteHadNoVaultDocuments =
+      inspection.sample.notes === 0 &&
+      inspection.sample.chunks === 0 &&
+      inspection.sample.unknown === 0;
+
+    if (!wroteLocalChanges || !remoteHadNoVaultDocuments) {
+      return false;
+    }
+
+    const afterPush = await client.inspect();
+    await this.host.updateRemoteInspection(afterPush);
+    await localStore.setCheckpoint(afterPush.updateSequence);
+    this.host.log("First upload completed against an empty remote vault; skipped pulling this device's own uploaded documents.");
+    return true;
   }
 
   private async pushOneLocalChange(

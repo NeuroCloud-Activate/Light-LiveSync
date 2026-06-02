@@ -11,6 +11,7 @@ It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmr
 - Requires end-to-end encryption by default.
 - Batches edits for 60 seconds by default so rapid typing does not spam the server.
 - Scans the current vault when you press **Sync now**, so first-time uploads do not depend on fresh edit events.
+- Includes vault configuration, hidden files, and other plugin data in manual full-vault sync.
 - Restores saved credentials automatically on app start so mobile sync can resume without a repeated credential prompt.
 - Syncs vault configuration and plugin data along with notes.
 - Uses periodic sync as a fallback when mobile backgrounding or missed file events get in the way.
@@ -106,6 +107,7 @@ Security is a core part of the design, not an advanced mode.
 - Synced note content is encrypted before it reaches CouchDB.
 - Path obfuscation is enabled by default.
 - Add-device setup URIs are encrypted and should be treated like temporary invite codes.
+- Light-LiveSync keeps its own volatile runtime data and generated preview/staging/conflict folders local-only so sync does not loop on its own changing state.
 
 Use HTTPS, a trusted VPN, or another protected network path for CouchDB. Vault E2EE protects note content, but CouchDB Basic Authentication over plain HTTP can still expose the CouchDB username and password on the network.
 
@@ -160,7 +162,7 @@ Or run the full local gate:
 npm run check
 ```
 
-`npm test` covers setup URI and QR compatibility, direct CouchDB setup behavior, connection role checks, encrypted credential handling, session cache safety, desktop/mobile runtime reporting, evidence report redaction, scheduler backoff, sync batching, worker fallback, reconstruction, text merge, status presentation, and bundle shape.
+`npm test` covers setup URI and QR compatibility, direct CouchDB setup behavior, connection role checks, encrypted credential handling, session cache safety, desktop/mobile runtime reporting, evidence report redaction, scheduler backoff, sync batching, first-upload handling, vault scan rules, worker fallback, reconstruction, text merge, status presentation, and bundle shape.
 
 Build and verify a release folder plus zip:
 
