@@ -1,6 +1,6 @@
-# Lightweight LiveSync
+# Light-LiveSync
 
-Lightweight LiveSync is an Obsidian sync plugin with a simple goal: keep your vault synced through your own CouchDB server without making Obsidian feel heavy.
+Light-LiveSync is an Obsidian sync plugin with a simple goal: keep your vault synced through your own CouchDB server without making Obsidian feel heavy.
 
 It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmrz/obsidian-livesync). The original plugin proved that CouchDB-backed Obsidian sync can be powerful, but it also accumulated a lot of options, rough edges, bugs, and performance issues for people who mostly wanted one thing: reliable live sync. This plugin focuses on doing that one job as cleanly as possible.
 
@@ -23,7 +23,7 @@ This project was built collaboratively with AI assistance through OpenAI Codex. 
 
 ## Why This Fork Exists
 
-Self-hosted LiveSync is feature-rich, but that breadth can also make it harder to debug, harder to configure, and easier to hit performance problems. Lightweight LiveSync intentionally narrows the scope.
+Self-hosted LiveSync is feature-rich, but that breadth can also make it harder to debug, harder to configure, and easier to hit performance problems. Light-LiveSync intentionally narrows the scope.
 
 The focus here is:
 
@@ -39,7 +39,7 @@ This is not trying to replace every advanced feature from the original plugin. I
 
 ## Compatibility
 
-Lightweight LiveSync keeps the same CouchDB-style backend approach used by Self-hosted LiveSync. It is intended to work with existing self-hosted CouchDB deployments, including common Docker-based CouchDB setups.
+Light-LiveSync keeps the same CouchDB-style backend approach used by Self-hosted LiveSync. It is intended to work with existing self-hosted CouchDB deployments, including common Docker-based CouchDB setups.
 
 It supports:
 
@@ -58,7 +58,7 @@ The setup process is guided inside the plugin. The fields are described where yo
 
 For the first device:
 
-1. Open Lightweight LiveSync settings.
+1. Open Light-LiveSync settings.
 2. Choose direct CouchDB setup.
 3. Enter the CouchDB host, database name, E2EE passphrase, username, and password.
 4. Let the plugin verify the connection.
@@ -66,7 +66,7 @@ For the first device:
 
 For another device:
 
-1. On the original device, open Lightweight LiveSync settings.
+1. On the original device, open Light-LiveSync settings.
 2. Choose **Generate URI** under **Add another device**.
 3. Copy the encrypted `obsidian://setuplivesync?settings=...` URI to the new device through a trusted channel.
 4. On the new device, choose **Use setup URI**.
@@ -102,8 +102,6 @@ Recommended CouchDB posture:
 - Keep database access restricted with `_security` members or roles.
 - Give sync users only the access they need.
 - Avoid public exposure unless protected by TLS, VPN, firewall rules, or a reverse proxy.
-
-See [docs/security.md](docs/security.md) for the fuller security checklist.
 
 ## Lightweight Sync Design
 
@@ -169,6 +167,4 @@ Release files are:
 
 The plugin is built to load on Obsidian desktop and mobile, but real mobile sync should still be tested on a real iOS or Android device before you rely on it everywhere.
 
-Use [docs/mobile-runtime-checklist.md](docs/mobile-runtime-checklist.md) for the device test and [docs/mobile-evidence-template.md](docs/mobile-evidence-template.md) to record non-secret results.
-
-For release auditing, see [docs/verification-matrix.md](docs/verification-matrix.md).
+For a practical mobile check, install the release build on the device, import the setup URI, unlock with the shared E2EE passphrase, create and edit a few notes, sync in both directions, and confirm the status settles without freezes or repeated large retries. Record only non-secret observations: device type, Obsidian version, plugin version, connection type, sync result, and whether queues returned to zero.

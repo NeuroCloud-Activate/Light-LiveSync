@@ -5,7 +5,7 @@ import builtins from "builtin-modules";
 const production = process.argv[2] === "production";
 const commonOptions = {
   banner: {
-    js: "/* Lightweight LiveSync */"
+    js: "/* Light-LiveSync */"
   },
   bundle: true,
   target: "es2022",

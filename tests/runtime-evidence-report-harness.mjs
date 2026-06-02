@@ -49,7 +49,7 @@ const report = formatRuntimeEvidenceReport({
   generatedAt: 1780362600000,
   platform: "iPhone; 5 touch points",
   manifest: {
-    id: "lightweight-livesync",
+    id: "light-livesync",
     version: "0.1.0",
     isDesktopOnly: false
   },
@@ -66,7 +66,7 @@ const report = formatRuntimeEvidenceReport({
   }
 });
 
-assert.match(report, /# Lightweight LiveSync Runtime Evidence/);
+assert.match(report, /# Light-LiveSync Runtime Evidence/);
 assert.match(report, /Platform: iPhone; 5 touch points/);
 assert.match(report, /Capability check: pass/);
 assert.match(report, /Runtime smoke check: pass/);
@@ -81,9 +81,9 @@ assert.doesNotMatch(report, /private-passphrase/);
 
 const fileName = runtimeEvidenceReportFileName(1780362600123);
 const filePath = runtimeEvidenceReportPath(1780362600123);
-assert.equal(RUNTIME_EVIDENCE_FOLDER, "Lightweight LiveSync Evidence");
+assert.equal(RUNTIME_EVIDENCE_FOLDER, "Light-LiveSync Evidence");
 assert.equal(fileName, "runtime-evidence-2026-06-02T01-10-00-123Z.md");
-assert.equal(filePath, "Lightweight LiveSync Evidence/runtime-evidence-2026-06-02T01-10-00-123Z.md");
+assert.equal(filePath, "Light-LiveSync Evidence/runtime-evidence-2026-06-02T01-10-00-123Z.md");
 assert.doesNotMatch(fileName, /:/);
 assert.doesNotMatch(fileName.replace(/\.md$/, ""), /\./);
 

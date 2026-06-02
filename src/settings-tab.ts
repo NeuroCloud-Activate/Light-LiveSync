@@ -15,7 +15,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Lightweight LiveSync" });
+    new Setting(containerEl).setName("Light-LiveSync").setHeading();
     containerEl.createEl("p", {
       text: "A low-noise vault sync setup for CouchDB. Defaults favor encrypted sync, small batches, automatic text merges, and recovery backups."
     });
@@ -36,7 +36,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   }
 
   private section(containerEl: SettingsContainer, title: string): SettingsContainer {
-    containerEl.createEl("h3", { text: title });
+    new Setting(containerEl).setName(title).setHeading();
     return containerEl;
   }
 
@@ -574,7 +574,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       .setDesc(description)
       .addText((text) => {
         text
-          .setPlaceholder(`${this.plugin.app.vault.configDir}/plugins/lightweight-livesync/${folderName}`)
+          .setPlaceholder(`${this.plugin.app.vault.configDir}/plugins/light-livesync/${folderName}`)
           .setValue(this.plugin.settings[key])
           .onChange(async (value) => {
             this.plugin.settings[key] = value.trim().replace(/^\/+|\/+$/g, "");

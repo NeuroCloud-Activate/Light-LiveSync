@@ -9,7 +9,7 @@ function clone(value) {
 function report(settingsPatch, manifestPatch = {}) {
   return buildRuntimeSmokeCheckReport({
     manifest: {
-      id: "lightweight-livesync",
+      id: "light-livesync",
       version: "0.1.0",
       isDesktopOnly: false,
       ...manifestPatch

@@ -30,7 +30,7 @@ globalThis.sessionStorage = new MemorySessionStorage();
 
 const scope = {
   vaultName: "ExampleVault",
-  pluginId: "lightweight-livesync",
+  pluginId: "light-livesync",
   uri: "http://example.com:5984",
   database: "testingob",
   username: "user"

@@ -121,14 +121,14 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     });
 
     this.statusBar = this.addStatusBarItem();
-    this.statusBar.addClass("lightweight-livesync-status");
+    this.statusBar.addClass("light-livesync-status");
     this.statusPresenter = new CalmStatusPresenter<number>({
       now: () => Date.now(),
       setText: (message) => this.statusBar?.setText(`LightSync: ${message}`),
       setTimer: (callback, delayMs) => window.setTimeout(callback, delayMs),
       clearTimer: (timer) => window.clearTimeout(timer)
     }, { minimumVisibleMs: 1000 });
-    this.setStatus("Lightweight LiveSync loaded");
+    this.setStatus("Light-LiveSync loaded");
 
     this.addSettingTab(new LightweightLiveSyncSettingTab(this));
     this.registerCommands();
@@ -338,7 +338,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       await this.updateRemoteInspection(verification.inspection);
 
       this.setStatus(verification.statusMessage);
-      new Notice(`Lightweight LiveSync connected with these credentials. ${verification.noticeMessage}`);
+      new Notice(`Light-LiveSync connected with these credentials. ${verification.noticeMessage}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`Direct CouchDB setup failed: ${message}`);
@@ -361,7 +361,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       }
       await this.saveSettingsAndReschedule();
       this.setStatus("Setup URI imported");
-      new Notice("Lightweight LiveSync setup imported.");
+      new Notice("Light-LiveSync setup imported.");
       if (this.canRunAutomaticSync()) {
         this.scheduler.request("setup-import", true);
       }
@@ -396,7 +396,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       }
       await this.saveSettingsAndReschedule();
       this.setStatus("Setup QR imported");
-      new Notice("Lightweight LiveSync QR setup imported.");
+      new Notice("Light-LiveSync QR setup imported.");
       if (this.canRunAutomaticSync()) {
         this.scheduler.request("setup-qr-import", true);
       }
@@ -473,7 +473,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       await this.rememberSessionCredentials(payload);
       await this.saveSettingsAndReschedule();
       this.setStatus("Credentials unlocked");
-      new Notice("Lightweight LiveSync credentials unlocked.");
+      new Notice("Light-LiveSync credentials unlocked.");
       if (this.settings.localQueue.pendingPush > 0) {
         this.scheduler.request("vault-change");
       }
@@ -598,7 +598,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
     await this.app.vault.create(filePath, content);
     this.setStatus(capability.ok && smoke.ok ? "Evidence report written" : "Evidence report needs attention");
-    new Notice(`Lightweight LiveSync evidence report written to ${filePath}.`);
+    new Notice(`Light-LiveSync evidence report written to ${filePath}.`);
     this.log(`Runtime evidence report written: ${filePath}`);
   }
 
@@ -980,7 +980,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!credentialsAreLocked(this.getRuntimeSettings())) {
       return true;
     }
-    new Notice("Unlock Lightweight LiveSync credentials to continue.");
+    new Notice("Unlock Light-LiveSync credentials to continue.");
     return this.unlockCredentials();
   }
 
@@ -1424,7 +1424,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private log(message: string): void {
-    console.log(`[Lightweight LiveSync] ${message}`);
+    console.log(`[Light-LiveSync] ${message}`);
   }
 
   private logPreviewSummary(summary: ReconstructionBatchSummary): void {

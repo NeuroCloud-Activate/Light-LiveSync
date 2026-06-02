@@ -11,7 +11,7 @@ export type RuntimeEvidenceReportInput = {
   capability: RuntimeCapabilityReport;
 };
 
-export const RUNTIME_EVIDENCE_FOLDER = "Lightweight LiveSync Evidence";
+export const RUNTIME_EVIDENCE_FOLDER = "Light-LiveSync Evidence";
 
 function checkbox(ok: boolean): string {
   return ok ? "pass" : "needs attention";
@@ -40,7 +40,7 @@ export function formatRuntimeEvidenceReport(input: RuntimeEvidenceReportInput): 
   const metrics = runtime.lastSyncMetrics;
 
   return [
-    "# Lightweight LiveSync Runtime Evidence",
+    "# Light-LiveSync Runtime Evidence",
     "",
     `Generated: ${new Date(generatedAt).toISOString()}`,
     `Platform: ${platform || "unknown"}`,

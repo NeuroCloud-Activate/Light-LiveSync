@@ -100,7 +100,7 @@ function normaliseDatabaseName(value: string): string {
 }
 
 function localDatabaseName(databaseName: string): string {
-  return `lightweight-livesync-${normaliseDatabaseName(databaseName || "default")}`;
+  return `light-livesync-${normaliseDatabaseName(databaseName || "default")}`;
 }
 
 function compareSeq(left: string, right: string): number {

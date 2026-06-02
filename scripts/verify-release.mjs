@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { access, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
+const expectedId = "light-livesync";
+const expectedName = "Light-LiveSync";
+const expectedVersion = "0.1.0";
+const expectedMinAppVersion = "1.5.0";
 const expectedFiles = ["main.js", "manifest.json", "styles.css", "sync-worker.js"];
-const expectedZipEntries = expectedFiles.map((file) => `lightweight-livesync/${file}`).sort();
+const expectedZipEntries = expectedFiles.map((file) => `light-livesync/${file}`).sort();
 const forbiddenPatterns = [
   /\/Users\//i,
   /BEGIN (RSA|OPENSSH|PRIVATE) KEY/i
@@ -38,8 +42,32 @@ async function assertNoForbiddenStrings(path) {
   }
 }
 
-const releaseDir = "release/lightweight-livesync";
-const zipPath = "release/lightweight-livesync.zip";
+const releaseDir = "release/light-livesync";
+const zipPath = "release/light-livesync.zip";
+const rootManifest = JSON.parse(await readFile("manifest.json", "utf8"));
+const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+const versions = JSON.parse(await readFile("versions.json", "utf8"));
+const readme = await readFile("README.md", "utf8");
+const license = await readFile("LICENSE", "utf8");
+
+assert.equal(rootManifest.id, expectedId);
+assert.equal(rootManifest.name, expectedName);
+assert.equal(rootManifest.version, expectedVersion);
+assert.equal(rootManifest.minAppVersion, expectedMinAppVersion);
+assert.equal(rootManifest.isDesktopOnly, false);
+assert.equal(typeof rootManifest.description, "string");
+assert.equal(rootManifest.description.length > 20, true);
+assert.equal(rootManifest.description.includes("Obsidian"), true);
+assert.equal(rootManifest.author, "Light-LiveSync contributors");
+assert.equal(rootManifest.authorUrl, "https://github.com/NeuroCloud-Activate/Light-LiveSync");
+assert.equal(packageJson.name, expectedId);
+assert.equal(packageJson.version, expectedVersion);
+assert.equal(versions[expectedVersion], expectedMinAppVersion);
+assert.equal(readme.includes("# Light-LiveSync"), true);
+assert.equal(readme.includes("OpenAI Codex"), true);
+assert.equal(license.includes("MIT License"), true);
+await access("CHANGELOG.md");
+
 const files = (await readdir(releaseDir)).sort();
 assert.deepEqual(files, expectedFiles);
 
@@ -56,7 +84,10 @@ assert.equal(zip.length > 0, true, "release zip must not be empty");
 assert.deepEqual(centralDirectoryEntries(zip), expectedZipEntries);
 
 const manifest = JSON.parse(await readFile(join(releaseDir, "manifest.json"), "utf8"));
-assert.equal(manifest.id, "lightweight-livesync");
+assert.deepEqual(manifest, rootManifest);
+assert.equal(manifest.id, expectedId);
+assert.equal(manifest.name, expectedName);
+assert.equal(manifest.version, expectedVersion);
 assert.equal(manifest.isDesktopOnly, false);
 
 const main = await readFile(join(releaseDir, "main.js"), "utf8");
@@ -74,7 +105,7 @@ assert.equal(
   "main.js must include the runtime evidence report command"
 );
 assert.equal(
-  main.includes("Lightweight LiveSync Runtime Evidence"),
+  main.includes("Light-LiveSync Runtime Evidence"),
   true,
   "main.js must include the runtime evidence report template"
 );
@@ -84,13 +115,16 @@ assert.equal(
   "main.js must include non-secret evidence report redaction language"
 );
 assert.equal(
-  main.includes("Lightweight LiveSync Evidence"),
+  main.includes("Light-LiveSync Evidence"),
   true,
   "main.js must include the runtime evidence report folder"
 );
 
 console.log(JSON.stringify({
   ok: true,
+  id: manifest.id,
+  name: manifest.name,
+  version: manifest.version,
   files,
   zipEntries: expectedZipEntries,
   isDesktopOnly: manifest.isDesktopOnly,

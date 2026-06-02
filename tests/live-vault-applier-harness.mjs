@@ -77,7 +77,7 @@ const writeResult = await applyReadyPreviewsToLiveVault(
   ],
   {
     configDir: ".obsidian",
-    conflictFolder: ".obsidian/plugins/lightweight-livesync/conflicts"
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
   }
 );
 
@@ -103,7 +103,7 @@ const deleteResult = await applyReadyPreviewsToLiveVault(
   ],
   {
     configDir: ".obsidian",
-    conflictFolder: ".obsidian/plugins/lightweight-livesync/conflicts"
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
   }
 );
 
@@ -129,7 +129,7 @@ const protectedResult = await applyReadyPreviewsToLiveVault(
   ],
   {
     configDir: ".obsidian",
-    conflictFolder: ".obsidian/plugins/lightweight-livesync/conflicts"
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
   }
 );
 
@@ -154,7 +154,7 @@ const binaryResult = await applyReadyPreviewsToLiveVault(
   ],
   {
     configDir: ".obsidian",
-    conflictFolder: ".obsidian/plugins/lightweight-livesync/conflicts",
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts",
     yieldToUi: async () => {
       applyYields += 1;
     }

@@ -5,8 +5,8 @@ import { basename, join } from "node:path";
 
 const releaseFiles = ["manifest.json", "main.js", "sync-worker.js", "styles.css"];
 const releaseDir = "release";
-const pluginDir = join(releaseDir, "lightweight-livesync");
-const zipPath = join(releaseDir, "lightweight-livesync.zip");
+const pluginDir = join(releaseDir, "light-livesync");
+const zipPath = join(releaseDir, "light-livesync.zip");
 
 const crcTable = new Uint32Array(256).map((_, index) => {
   let value = index;
@@ -116,7 +116,7 @@ const entries = [];
 for (const file of releaseFiles) {
   const data = await readFile(file);
   await writeFile(join(pluginDir, basename(file)), data);
-  entries.push({ name: `lightweight-livesync/${basename(file)}`, data });
+  entries.push({ name: `light-livesync/${basename(file)}`, data });
 }
 
 await writeFile(zipPath, zipStored(entries));

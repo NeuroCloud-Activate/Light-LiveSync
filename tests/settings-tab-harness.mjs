@@ -77,7 +77,7 @@ const unconfigured = render({
     lastSyncStartedAt: Date.now() - 1000,
     lastSyncFinishedAt: Date.now(),
     lastSyncOk: false,
-    lastSyncError: "Lightweight LiveSync is not configured.",
+    lastSyncError: "Light-LiveSync is not configured.",
     syncsStarted: 1,
     syncsFinished: 1,
     syncsFailed: 1

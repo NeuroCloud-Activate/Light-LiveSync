@@ -125,7 +125,7 @@ export class LightweightSyncEngine {
   async initialiseRemote(): Promise<SyncOutcome> {
     const settings = this.host.getSettings();
     if (!settings.configured || !hasUsableRemote(settings)) {
-      return { ok: false, message: "Lightweight LiveSync is not configured." };
+      return { ok: false, message: "Light-LiveSync is not configured." };
     }
     if (settings.deviceSetupRole === "additional-device") {
       return {
@@ -222,7 +222,7 @@ export class LightweightSyncEngine {
   private readySyncSettings(): ReadySyncSettings | NotReadySyncSettings {
     const settings = this.host.getSettings();
     if (!settings.configured || !hasUsableRemote(settings)) {
-      return { ok: false, message: "Lightweight LiveSync is not configured." };
+      return { ok: false, message: "Light-LiveSync is not configured." };
     }
     if (credentialsAreLocked(settings)) {
       return { ok: false, message: "Credentials are locked. Use the unlock command before syncing." };

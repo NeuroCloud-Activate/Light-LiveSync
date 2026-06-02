@@ -1,10 +1,10 @@
 {
-  "id": "lightweight-livesync",
-  "name": "Lightweight LiveSync",
+  "id": "light-livesync",
+  "name": "Light-LiveSync",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "A conservative Self-hosted LiveSync-compatible sync plugin focused on low contention and setup URI compatibility.",
-  "author": "Lightweight LiveSync contributors",
-  "authorUrl": "",
+  "description": "Simple, low-contention CouchDB live sync for Obsidian with setup URI compatibility and encrypted vault sync.",
+  "author": "Light-LiveSync contributors",
+  "authorUrl": "https://github.com/NeuroCloud-Activate/Light-LiveSync",
   "isDesktopOnly": false
 }

@@ -27,16 +27,16 @@ jobs:
         run: npm run check
 
       - name: Verify release artifacts
-        run: test -f release/lightweight-livesync.zip && test -f release/lightweight-livesync/main.js && test -f release/lightweight-livesync/sync-worker.js
+        run: test -f release/light-livesync.zip && test -f release/light-livesync/main.js && test -f release/light-livesync/sync-worker.js
 
       - name: Upload release folder
         uses: actions/upload-artifact@v4
         with:
-          name: lightweight-livesync-release
-          path: release/lightweight-livesync
+          name: light-livesync-release
+          path: release/light-livesync
 
       - name: Upload release zip
         uses: actions/upload-artifact@v4
         with:
-          name: lightweight-livesync-zip
-          path: release/lightweight-livesync.zip
+          name: light-livesync-zip
+          path: release/light-livesync.zip

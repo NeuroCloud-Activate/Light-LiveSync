@@ -68,7 +68,7 @@ export function buildRuntimeSmokeCheckReport(input: RuntimeSmokeCheckInput): Run
   if (issues.length === 0) {
     return {
       ok: true,
-      message: "Runtime check passed. Lightweight LiveSync is loaded and ready for background sync.",
+      message: "Runtime check passed. Light-LiveSync is loaded and ready for background sync.",
       details
     };
   }

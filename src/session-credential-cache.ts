@@ -31,13 +31,13 @@ const KEY_LENGTH_BYTES = 32;
 
 function storageKey(scope: SessionCredentialScope): string {
   const vault = encodeURIComponent(scope.vaultName || "vault");
-  const plugin = encodeURIComponent(scope.pluginId || "lightweight-livesync");
+  const plugin = encodeURIComponent(scope.pluginId || "light-livesync");
   return `${plugin}:${vault}:session-credentials:v1`;
 }
 
 function reloadProofStorageKey(scope: SessionCredentialScope): string {
   const vault = encodeURIComponent(scope.vaultName || "vault");
-  const plugin = encodeURIComponent(scope.pluginId || "lightweight-livesync");
+  const plugin = encodeURIComponent(scope.pluginId || "light-livesync");
   return `${plugin}:${vault}:session-credentials-reload-proof:v1`;
 }
 

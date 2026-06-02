@@ -57,6 +57,11 @@ export class Setting {
     return this;
   }
 
+  setHeading() {
+    this.settingEl.heading = true;
+    return this;
+  }
+
   addButton(callback) {
     const button = createButton();
     callback(button);
