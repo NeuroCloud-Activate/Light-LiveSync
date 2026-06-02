@@ -39,19 +39,20 @@ export class DirectCouchDbSetupModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("light-livesync-modal");
-    contentEl.createEl("h2", { text: "Connect CouchDB" });
+    contentEl.addClass("light-livesync-command-modal");
+    contentEl.createEl("h2", { text: "Prepare CouchDB Setup Command" });
     contentEl.createEl("p", {
-      text: "Enter the sync values that should go into the setup URI. The plugin uses these fields to copy a server-side setup command; it does not connect from this window."
+      text: "Enter the Server Domain, Database Name, Database User, and Database Password configured in your server-side CouchDB instance. These values are used to generate the setup URI that this plugin imports."
     });
     contentEl.createEl("p", {
-      text: "Run the copied command directly on the self-hosted server side where CouchDB is reachable, such as the server terminal or the Docker container console for your CouchDB setup. If you are creating a new sync user or database, fill in the optional CouchDB admin variables in that command before running it."
+      text: "Run the copied command directly on the CouchDB host, such as the server terminal, SSH session, or Docker container console. If creating a new database user or database, fill in the optional CouchDB admin variables in that command before running it."
     });
 
-    this.addTextField("hostname", "192.0.2.10:5984");
+    this.addTextField("hostname", "https://sync.example.com:5984");
     this.addTextField("database", "my_vault");
     this.addTextField("passphrase", "Vault E2EE passphrase", true);
-    this.addTextField("username", "CouchDB user");
-    this.addTextField("password", "CouchDB password", true);
+    this.addTextField("username", "Database user");
+    this.addTextField("password", "Database password", true);
 
     new Setting(contentEl)
       .addButton((button) => {

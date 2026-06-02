@@ -62,18 +62,18 @@ The setup process is guided inside the plugin. The fields are described where yo
 For the first device:
 
 1. Open Light-LiveSync settings.
-2. Choose direct CouchDB setup.
-3. Enter the CouchDB host, database name, E2EE passphrase, username, and password.
-4. Let the plugin verify the connection.
-5. The plugin creates or verifies the database, prepares sync parameters, and requires E2EE before syncing.
+2. Choose **Prepare command**.
+3. Enter the CouchDB values configured in your server-side CouchDB instance: Server Domain, Database Name, Database User, and Database Password.
+4. Enter the shared Vault E2EE Passphrase that will encrypt synced vault content.
+5. Copy the setup command, run it on the CouchDB host, then paste the printed setup URI into **Use setup URI**.
 
-Use **Copy setup command** in the setup screen. Run the copied command directly on the self-hosted server side where CouchDB is reachable, such as your server terminal, SSH session, or Docker container console for the CouchDB service. It runs this repo's hosted helper script:
+Use **Copy setup command** in the setup screen. Run the copied command directly on the CouchDB host where the server-side CouchDB instance is reachable, such as your server terminal, SSH session, or Docker container console. It runs this repo's hosted helper script:
 
 ```sh
 deno run -A https://raw.githubusercontent.com/NeuroCloud-Activate/Light-LiveSync/main/utils/couchdb_setupuri.ts
 ```
 
-The copied command fills in `hostname`, `database`, and `username`. Password and passphrase placeholders are left for you to fill before running it. If you are creating a new sync user or database, also replace `admin_username` and `admin_password` with an existing CouchDB admin. The helper creates or updates the sync user, creates or verifies the database, prepares LiveSync sync parameters, restricts database access to the named sync user, verifies that sync user can read the database, and prints a setup URI that can be pasted back into **Use setup URI**.
+The copied command maps the setup form to the setup URI fields: Server Domain becomes `hostname`, Database Name becomes `database`, Database User becomes `username`, and Database Password becomes `password`. The Vault E2EE Passphrase becomes `passphrase`. If you are creating a new database user or database, also replace `admin_username` and `admin_password` with an existing CouchDB admin. The helper creates or updates the database user, creates or verifies the database, prepares LiveSync sync parameters, restricts database access to that database user, verifies that database user can read the database, and prints a setup URI that can be pasted back into **Use setup URI**.
 
 For another device:
 

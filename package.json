@@ -1,6 +1,6 @@
 {
   "name": "light-livesync",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "Light-LiveSync keeps Obsidian vaults synced through a self-hosted CouchDB backend with low-contention encrypted sync.",
   "type": "module",

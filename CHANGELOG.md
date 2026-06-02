@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7
+
+- Revises setup wording around Server Domain, Database Name, Database User, and Database Password from the server-side CouchDB instance.
+- Clarifies how those setup fields map into the generated setup URI.
+- Improves spacing and full-width field layout in the Prepare command modal.
+
 ## 0.1.6
 
 - Removes the misleading Connect action from the CouchDB command-prep modal.

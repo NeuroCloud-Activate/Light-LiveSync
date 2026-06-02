@@ -24,24 +24,24 @@ export type DirectCouchDbSetupFieldDescription = {
 
 export const DIRECT_SETUP_FIELD_DESCRIPTIONS: Record<DirectCouchDbSetupField, DirectCouchDbSetupFieldDescription> = {
   hostname: {
-    label: "hostname",
-    description: "CouchDB server address from the setup script. Use host:port or https://host:port; http:// is added when omitted."
+    label: "Server Domain",
+    description: "The CouchDB server domain or address configured on your server-side CouchDB instance. Use host:port or https://domain; http:// is added when omitted."
   },
   database: {
-    label: "database",
-    description: "CouchDB database to create or reuse for this vault. The connection check confirms the account can access it."
+    label: "Database Name",
+    description: "The CouchDB database name configured on the server-side CouchDB instance for this vault."
   },
   passphrase: {
-    label: "passphrase",
-    description: "Shared vault E2EE secret. Required on every device; it encrypts synced note content and protects saved local credentials."
+    label: "Vault E2EE Passphrase",
+    description: "Shared vault encryption passphrase. Use the same value on every device so synced files can be decrypted."
   },
   username: {
-    label: "username",
-    description: "CouchDB sync account name for this vault. If this is a new user, fill the admin_username/admin_password placeholders in the copied server-side command."
+    label: "Database User",
+    description: "The CouchDB database user configured on the server-side CouchDB instance for this vault. If this is a new user, fill the admin_username/admin_password placeholders in the copied server-side command."
   },
   password: {
-    label: "password",
-    description: "Password for the CouchDB sync account. It is placed into the encrypted setup URI; it is not used as the CouchDB admin password."
+    label: "Database Password",
+    description: "The CouchDB database password configured on the server-side CouchDB instance for this vault. It is placed into the encrypted setup URI; it is not used as the CouchDB admin password."
   }
 };
 

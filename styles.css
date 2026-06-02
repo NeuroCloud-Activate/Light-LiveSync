@@ -41,17 +41,48 @@
 
 .light-livesync-modal {
   max-width: min(680px, 100%);
+  margin: 0 auto;
 }
 
 .light-livesync-modal .setting-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
   align-items: flex-start;
+  padding: 14px 0;
+}
+
+.light-livesync-modal .setting-item-info,
+.light-livesync-modal .setting-item-control {
+  width: 100%;
+  max-width: 100%;
+}
+
+.light-livesync-modal .setting-item-control {
+  justify-content: flex-start;
+  gap: 8px;
 }
 
 .light-livesync-modal textarea,
 .light-livesync-modal input {
+  width: 100%;
   max-width: 100%;
 }
 
 .light-livesync-modal textarea {
   min-height: 120px;
+}
+
+.light-livesync-command-modal {
+  padding-inline: 8px;
+}
+
+.light-livesync-command-modal h2 {
+  margin-bottom: 12px;
+}
+
+.light-livesync-command-modal p {
+  max-width: 640px;
+  margin: 8px 0;
+  color: var(--text-muted);
 }
