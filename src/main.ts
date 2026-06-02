@@ -76,7 +76,9 @@ import {
   type RecoveryBackupEntry
 } from "./recovery-backups";
 import {
+  type DeletedFileVersionEntry,
   listFileVersions,
+  listRecentlyDeletedFileVersions,
   restoreFileVersion,
   type FileVersionEntry
 } from "./version-history";
@@ -119,7 +121,6 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private localStores = new Map<string, LocalDocumentStore>();
   private suppressVaultEventQueue = false;
   private vaultChangeBatchTimer?: number;
-  private vaultEventCutoffMs = Date.now();
   private configuredAtLoad = false;
   private sessionCredentials: CredentialPayload | null = null;
   private lastProgressLogAt = 0;
@@ -511,7 +512,6 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       nextSettings.credentialStore = await this.encryptCredentialPayloadForSettings(nextSettings, sessionCredentials, nextSettings.passphrase);
 
       await this.resetLocalSyncState(nextSettings.couchDb.database);
-      this.vaultEventCutoffMs = Date.now();
       this.sessionCredentials = sessionCredentials;
       this.settings = nextSettings;
       await this.rememberSessionCredentials(sessionCredentials);
@@ -776,6 +776,24 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     );
     this.log(`Version history check for ${normalizedPath}: found ${versions.length} saved version${versions.length === 1 ? "" : "s"}.`);
     return versions;
+  }
+
+  async listRecentlyDeletedFileVersions(limit = 20): Promise<DeletedFileVersionEntry[]> {
+    if (!this.settings.configured || !hasUsableRemote(this.settings)) {
+      throw new Error("Light-LiveSync is not configured.");
+    }
+    if (!(await this.ensureCredentialsUnlocked())) {
+      throw new Error("Saved credentials could not be opened automatically.");
+    }
+    const client = new CouchDbClient(this.getRuntimeSettings().couchDb);
+    const deletedVersions = await listRecentlyDeletedFileVersions(
+      client,
+      this.app.vault.adapter,
+      this.documentTransformOptions(),
+      limit
+    );
+    this.log(`Recently deleted recovery check: found ${deletedVersions.length} file${deletedVersions.length === 1 ? "" : "s"} with saved versions.`);
+    return deletedVersions;
   }
 
   async restoreFileVersion(entry: FileVersionEntry): Promise<void> {
@@ -1494,25 +1512,28 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private queueVaultFile(file: unknown, deleted = false): void {
     if (file instanceof TFile) {
-      this.queueVaultPath(file.path, deleted, file.stat.mtime);
+      this.queueVaultPath(file.path, deleted);
     }
   }
 
-  private queueVaultPath(path: string, deleted = false, modifiedAt = 0): void {
-    if (!this.shouldQueueVaultPath(path, deleted, modifiedAt)) {
+  private queueVaultPath(path: string, deleted = false): void {
+    if (!this.shouldQueueVaultPath(path)) {
       return;
     }
+    const startingNewBatch = this.vaultChangeBatchTimer === undefined;
     void this.queueLocalPush(path, deleted);
+    if (startingNewBatch) {
+      this.logProgress(`Local ${deleted ? "delete" : "edit"} noticed for ${path}. Upload will start after the batching window.`, true);
+    }
     this.scheduleVaultChangeBatchSync();
   }
 
-  private shouldQueueVaultPath(path: string, deleted: boolean, modifiedAt: number): boolean {
+  private shouldQueueVaultPath(path: string): boolean {
     return (
       !this.suppressVaultEventQueue &&
       this.settings.configured &&
       this.settings.syncOnSave &&
-      this.shouldSyncPath(path) &&
-      (deleted || modifiedAt === 0 || modifiedAt >= this.vaultEventCutoffMs)
+      this.shouldSyncPath(path)
     );
   }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.31
+
+- Queues Obsidian vault-change events directly instead of dropping edits when a platform reports an older file timestamp.
+- Adds an Activity log entry when the first local edit or delete in a batch is noticed, making missed desktop uploads easier to diagnose.
+- Applies remote text deletions during automatic merge, including inline text removals and deleted lines.
+- Adds a Recently deleted files view in Recovery for restoring deleted files from saved encrypted version history.
+
 ## 0.1.30
 
 - Caps normal automatic remote checks at 30 seconds for faster cross-device pickup without constant network chatter.

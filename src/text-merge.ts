@@ -11,6 +11,32 @@ function hasTrailingNewline(value: string): boolean {
   return value.endsWith("\n") || value.endsWith("\r\n");
 }
 
+function isSubsequence<T>(candidate: T[], source: T[]): boolean {
+  let candidateIndex = 0;
+  for (const item of source) {
+    if (item === candidate[candidateIndex]) {
+      candidateIndex += 1;
+      if (candidateIndex === candidate.length) {
+        return true;
+      }
+    }
+  }
+  return candidateIndex === candidate.length;
+}
+
+function isCharacterSubsequence(candidate: string, source: string): boolean {
+  let candidateIndex = 0;
+  for (let sourceIndex = 0; sourceIndex < source.length; sourceIndex += 1) {
+    if (source[sourceIndex] === candidate[candidateIndex]) {
+      candidateIndex += 1;
+      if (candidateIndex === candidate.length) {
+        return true;
+      }
+    }
+  }
+  return candidateIndex === candidate.length;
+}
+
 function longestCommonSubsequence(current: string[], incoming: string[]): LineMatch[] {
   const lengths = Array.from({ length: current.length + 1 }, () => Array<number>(incoming.length + 1).fill(0));
   for (let currentIndex = current.length - 1; currentIndex >= 0; currentIndex -= 1) {
@@ -61,7 +87,7 @@ function appendIncomingOnlyBlock(
 }
 
 export function automaticTextMerge(current: string, incoming: string): string {
-  if (current === incoming || current.includes(incoming)) {
+  if (current === incoming) {
     return current;
   }
   if (incoming.includes(current)) {
@@ -70,6 +96,13 @@ export function automaticTextMerge(current: string, incoming: string): string {
 
   const currentLines = splitLines(current);
   const incomingLines = splitLines(incoming);
+  if (
+    incoming.length < current.length &&
+    (isSubsequence(incomingLines, currentLines) || isCharacterSubsequence(incoming, current))
+  ) {
+    return incoming;
+  }
+
   const currentLineSet = new Set(currentLines);
   const matches = longestCommonSubsequence(currentLines, incomingLines);
   const result: string[] = [];

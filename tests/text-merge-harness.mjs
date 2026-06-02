@@ -31,10 +31,24 @@ assert.equal(
   "trailing newline should be preserved when either side has one"
 );
 
+assert.equal(
+  automaticTextMerge("A\nB\nC\n", "A\nC\n"),
+  "A\nC\n",
+  "remote line deletions should remove text from the local copy"
+);
+
+assert.equal(
+  automaticTextMerge("I can add test text here.", "I can add text here."),
+  "I can add text here.",
+  "remote inline deletions should remove text from the local copy"
+);
+
 console.log(JSON.stringify({
   ok: true,
   anchoredInsertion: true,
   localAndRemotePreserved: true,
   frontmatterAddition: true,
-  trailingNewline: true
+  trailingNewline: true,
+  remoteLineDeletion: true,
+  remoteInlineDeletion: true
 }, null, 2));

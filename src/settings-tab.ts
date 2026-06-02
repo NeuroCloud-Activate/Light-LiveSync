@@ -1,7 +1,7 @@
 import { PluginSettingTab, Setting } from "obsidian";
 import type LightweightLiveSyncPlugin from "./main";
 import { credentialsAreLocked, normaliseCouchDbUri, normaliseDatabaseName } from "./settings";
-import type { FileVersionEntry } from "./version-history";
+import type { DeletedFileVersionEntry, FileVersionEntry } from "./version-history";
 
 type SettingsContainer = HTMLElement;
 type SettingsTabId = "sync" | "activity" | "recovery" | "advanced";
@@ -750,6 +750,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     let pathText: { inputEl: HTMLInputElement | HTMLTextAreaElement; setValue(value: string): unknown } | undefined;
     const listEl = containerEl.createEl("div");
     listEl.addClass("light-livesync-recovery-list");
+    let deletedListEl: HTMLElement;
     const autocompleteId = this.addFileLocationDatalist(containerEl);
 
     const renderVersionList = (versions: FileVersionEntry[], path: string) => {
@@ -769,6 +770,38 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
               this.display();
             });
           });
+      }
+    };
+
+    const renderDeletedList = (versions: DeletedFileVersionEntry[]) => {
+      deletedListEl.empty();
+      if (versions.length === 0) {
+        deletedListEl.createEl("p", { text: "No recently deleted files with saved versions were found." });
+        return;
+      }
+      deletedListEl.createEl("p", { text: `${versions.length} deleted file${versions.length === 1 ? "" : "s"} found with restorable versions.` });
+      for (const version of versions) {
+        new Setting(deletedListEl)
+          .setName(version.path)
+          .setDesc(`Latest saved version: ${formatTime(version.createdAt)}. ${version.contentType === "binary" ? "Binary file" : "Text file"}. Size: ${formatBytes(version.size)}. Saved versions found: ${version.versionCount}.`)
+          .addButton((button) => {
+            button.setButtonText("Restore").onClick(async () => {
+              await this.plugin.restoreFileVersion(version);
+              this.display();
+            });
+          });
+      }
+    };
+
+    const findDeletedVersions = async () => {
+      deletedListEl.empty();
+      deletedListEl.createEl("p", { text: "Looking for recently deleted files with saved versions..." });
+      try {
+        renderDeletedList(await this.plugin.listRecentlyDeletedFileVersions());
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        deletedListEl.empty();
+        deletedListEl.createEl("p", { text: `Could not load deleted files: ${friendlyError(message)}` });
       }
     };
 
@@ -820,6 +853,19 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       });
 
     listEl.createEl("p", { text: "Choose a file and find versions when you need to recover an older copy." });
+
+    this.section(containerEl, "Recently deleted files");
+    new Setting(containerEl)
+      .setName("Find deleted files")
+      .setDesc("Shows deleted files that still have saved encrypted versions in CouchDB. Restoring a file puts it back in the vault and queues it for sync.")
+      .addButton((button) => {
+        button.setButtonText("Show recently deleted").onClick(() => {
+          void findDeletedVersions();
+        });
+      });
+    deletedListEl = containerEl.createEl("div");
+    deletedListEl.addClass("light-livesync-recovery-list");
+    deletedListEl.createEl("p", { text: "Use this when a file was deleted and you want to restore the latest saved version." });
   }
 
   private addFileLocationDatalist(containerEl: SettingsContainer): string {

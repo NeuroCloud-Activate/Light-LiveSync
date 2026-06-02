@@ -42,6 +42,10 @@ export type FileVersionEntry = {
   contentType: "text" | "binary";
 };
 
+export type DeletedFileVersionEntry = FileVersionEntry & {
+  versionCount: number;
+};
+
 export type VersionRestoreResult = {
   restoredPath: string;
   createdPreRestoreBackup: boolean;
@@ -54,6 +58,10 @@ export type VersionHistoryClient = {
   getVersionDocumentsForFile(fileId: string): Promise<LiveSyncDocument[]>;
   putVersionDocument(doc: LiveSyncDocument): Promise<boolean>;
   deleteDocuments(docs: LiveSyncDocument[]): Promise<number>;
+};
+
+export type VersionHistoryBrowserClient = VersionHistoryClient & {
+  getRecentVersionDocuments(limit: number): Promise<LiveSyncDocument[]>;
 };
 
 export type VersionHistoryWriteClient = Pick<
@@ -236,6 +244,49 @@ export async function listFileVersions(
     });
   }
   return entries.sort((left, right) => right.createdAt - left.createdAt);
+}
+
+export async function listRecentlyDeletedFileVersions(
+  client: VersionHistoryBrowserClient,
+  adapter: DataAdapter,
+  options: DocumentTransformOptions,
+  limit = 20
+): Promise<DeletedFileVersionEntry[]> {
+  const documents = await client.getRecentVersionDocuments(Math.max(limit * 20, 200));
+  const byPath = new Map<string, DeletedFileVersionEntry>();
+
+  for (const doc of documents.filter(isVersionDocument)) {
+    const snapshot = versionSnapshot(doc);
+    if (!snapshot) {
+      continue;
+    }
+    const decrypted = await decryptFileDocument(snapshot, options);
+    const normalizedPath = normalizeVaultPath(decrypted.path);
+    if (!normalizedPath || await adapter.exists(normalizedPath)) {
+      continue;
+    }
+    const current = byPath.get(normalizedPath);
+    const candidate: DeletedFileVersionEntry = {
+      id: doc._id,
+      fileId: doc.versionFor,
+      path: normalizedPath,
+      createdAt: versionCreatedAt(doc),
+      hash: versionHash(doc),
+      size: decrypted.size ?? 0,
+      chunkCount: decrypted.children?.length ?? 0,
+      contentType: decrypted.type === ENTRY_TYPES.NOTE_BINARY ? "binary" : "text",
+      versionCount: (current?.versionCount ?? 0) + 1
+    };
+    if (!current || candidate.createdAt > current.createdAt) {
+      byPath.set(normalizedPath, candidate);
+    } else {
+      current.versionCount = candidate.versionCount;
+    }
+  }
+
+  return [...byPath.values()]
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .slice(0, limit);
 }
 
 export async function restoreFileVersion(

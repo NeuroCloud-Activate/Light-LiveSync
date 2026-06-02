@@ -509,6 +509,19 @@ export class CouchDbClient {
       .filter((doc): doc is LiveSyncDocument => !!doc && !doc._deleted);
   }
 
+  async getRecentVersionDocuments(limit: number): Promise<LiveSyncDocument[]> {
+    const query = new URLSearchParams({
+      include_docs: "true",
+      startkey: JSON.stringify("lls-version:"),
+      endkey: JSON.stringify("lls-version:\ufff0"),
+      limit: String(Math.max(1, limit))
+    });
+    const result = await this.requestJson<{ rows?: AllDocsRow[] }>(`_all_docs?${query.toString()}`);
+    return (result.rows ?? [])
+      .map((row) => row.doc)
+      .filter((doc): doc is LiveSyncDocument => !!doc && !doc._deleted);
+  }
+
   async putVersionDocument(doc: LiveSyncDocument): Promise<boolean> {
     const results = await this.bulkDocs([doc]);
     const result = results[0];

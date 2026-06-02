@@ -78,6 +78,9 @@ function render(settingsPatch) {
     listFileVersions() {
       return Promise.resolve([]);
     },
+    listRecentlyDeletedFileVersions() {
+      return Promise.resolve([]);
+    },
     restoreFileVersion() {},
     clearActivityLog() {},
     onActivityLogChanged() {
@@ -308,6 +311,8 @@ assert.match(recovery, /File location/);
 assert.match(recovery, /Start typing a vault path/);
 assert.match(recovery, /Use open file/);
 assert.match(recovery, /Find versions/);
+assert.match(recovery, /Recently deleted files/);
+assert.match(recovery, /Show recently deleted/);
 assert.doesNotMatch(recovery, /Recover from backups/);
 assert.doesNotMatch(recovery, /Recovery backups/);
 

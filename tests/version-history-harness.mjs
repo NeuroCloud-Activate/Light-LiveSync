@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildVersionDocument,
   listFileVersions,
+  listRecentlyDeletedFileVersions,
   restoreFileVersion,
   writeVersionForFile
 } from "../src/version-history.ts";
@@ -33,6 +34,12 @@ class MemoryVersionClient {
 
   async getVersionDocumentsForFile(fileId) {
     return [...this.documents.values()].filter((doc) => doc.versionFor === fileId && !doc._deleted);
+  }
+
+  async getRecentVersionDocuments(limit) {
+    return [...this.documents.values()]
+      .filter((doc) => doc.llsVersion && !doc._deleted)
+      .slice(0, limit);
   }
 
   async putVersionDocument(doc) {
@@ -166,9 +173,30 @@ assert.equal(restoreResult.createdPreRestoreBackup, true);
 assert.equal(adapter.files.get("Notes/example.md"), "old version");
 assert.equal(adapter.files.get(restoreResult.preRestoreBackupPath), "current version");
 
+const deletedVersions = await listRecentlyDeletedFileVersions(
+  restoreClient,
+  adapter,
+  transformOptions,
+  10
+);
+
+assert.equal(deletedVersions.some((entry) => entry.path === "Notes/example.md"), false);
+
+const missingFileVersions = await listRecentlyDeletedFileVersions(
+  restoreClient,
+  new MemoryAdapter({}),
+  transformOptions,
+  10
+);
+
+assert.equal(missingFileVersions.length, 1);
+assert.equal(missingFileVersions[0].path, "Notes/example.md");
+assert.equal(missingFileVersions[0].versionCount, 1);
+
 console.log(JSON.stringify({
   ok: true,
   remainingVersions: remaining.length,
   pruned: client.deleted.length,
-  restoredPath: restoreResult.restoredPath
+  restoredPath: restoreResult.restoredPath,
+  recentlyDeleted: missingFileVersions.length
 }, null, 2));

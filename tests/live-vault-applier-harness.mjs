@@ -190,6 +190,60 @@ assert.equal(adapterOnlyResult.merged, 1);
 assert.equal(adapterOnlyResult.failed, 0);
 assert.equal(vault.files.get(".obsidian/plugins/other-plugin/data.json"), "{\"old\":true}\n{\"new\":true}");
 
+vault.files.set("notes/delete-line.md", "A\nB\nC\n");
+const remoteTextDeleteResult = await applyReadyPreviewsToLiveVault(
+  vault,
+  [
+    {
+      id: "doc-text-delete",
+      rev: "2-text-delete",
+      path: "notes/delete-line.md",
+      status: "ready",
+      contentType: "text",
+      chunkCount: 1,
+      byteLength: 4,
+      content: "A\nC\n"
+    }
+  ],
+  {
+    configDir: ".obsidian",
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
+  }
+);
+
+assert.equal(remoteTextDeleteResult.merged, 1);
+assert.equal(remoteTextDeleteResult.backedUp, 1);
+assert.equal(remoteTextDeleteResult.failed, 0);
+assert.equal(vault.files.get("notes/delete-line.md"), "A\nC\n");
+
+const binaryBefore = new Uint8Array([1, 2, 3]).buffer;
+const binaryAfter = new Uint8Array([1, 9, 3, 4]).buffer;
+vault.files.set("assets/image.bin", binaryBefore);
+const binaryUpdateResult = await applyReadyPreviewsToLiveVault(
+  vault,
+  [
+    {
+      id: "doc-binary-update",
+      rev: "2-binary-update",
+      path: "assets/image.bin",
+      status: "ready",
+      contentType: "binary",
+      chunkCount: 1,
+      byteLength: 4,
+      content: binaryAfter
+    }
+  ],
+  {
+    configDir: ".obsidian",
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
+  }
+);
+
+assert.equal(binaryUpdateResult.applied, 1);
+assert.equal(binaryUpdateResult.backedUp, 1);
+assert.equal(binaryUpdateResult.failed, 0);
+assert.deepEqual([...new Uint8Array(vault.files.get("assets/image.bin"))], [1, 9, 3, 4]);
+
 const skipAndWaitResult = await applyReadyPreviewsToLiveVault(
   vault,
   [
@@ -360,6 +414,8 @@ console.log(JSON.stringify({
   conflicts: writeResult.conflicted + deleteResult.conflicted,
   configSynced: vault.files.get(".obsidian/app.json") === "{}",
   adapterOnlyFilesSync: adapterOnlyResult.failed === 0,
+  remoteTextDeleteMerged: remoteTextDeleteResult.merged,
+  binaryUpdateApplied: binaryUpdateResult.applied,
   terminalSkipsClear: skipAndWaitResult.skippedIds.length,
   excludedRemoteItemsClear: excludedResult.skippedIds.length,
   excludedMissingChunksClear: excludedMissingChunkResult.skippedIds.length,

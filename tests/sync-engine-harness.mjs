@@ -478,6 +478,63 @@ assert.equal(noOpOutcome.metrics.pushedFiles, 0);
 assert.equal(noOpOutcome.metrics.remoteDocsWritten, 0);
 assert.equal(noOpOutcome.metrics.localBytesRead, 12);
 
+const deletePushStore = new MemoryStore([
+  { path: "notes/remove-me.md", deleted: true, queuedAt: 1, updatedAt: 1, attempts: 0, nextAttemptAt: 0, lastError: "" }
+]);
+await deletePushStore.setLocalPushFingerprint("notes/remove-me.md", "text:20:previous");
+const deletedIds = [];
+let deleteReadCalls = 0;
+let deleteBuildCalls = 0;
+let deletePutCalls = 0;
+const deletePushEngine = new LightweightSyncEngine({
+  getSettings: () => ({
+    ...settings,
+    usePathObfuscation: false,
+    maxPushChangesPerSync: 10
+  }),
+  updateRemoteInspection: async () => {},
+  updateLocalQueue: async () => {},
+  getLocalStore: () => deletePushStore,
+  readLocalFileSnapshot: async () => {
+    deleteReadCalls += 1;
+    throw new Error("Deleted file pushes should not read local content.");
+  },
+  buildLocalPushBundle: async () => {
+    deleteBuildCalls += 1;
+    throw new Error("Deleted file pushes should not build upload bundles.");
+  },
+  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
+  createRemoteClient: () => ({
+    ...fakeClient,
+    async getChangesSince() {
+      return { lastSeq: "0", changes: [] };
+    },
+    async deleteLiveSyncDocument(id) {
+      deletedIds.push(id);
+      return true;
+    },
+    async putLiveSyncBundle() {
+      deletePutCalls += 1;
+      throw new Error("Deleted file pushes should not write a file bundle.");
+    },
+    async putLiveSyncBundles() {
+      deletePutCalls += 1;
+      throw new Error("Deleted file pushes should not write grouped file bundles.");
+    }
+  }),
+  log: () => {}
+});
+const deletePushOutcome = await deletePushEngine.sync("vault-change");
+assert.equal(deletePushOutcome.ok, true);
+assert.deepEqual(deletedIds, ["notes/remove-me.md"]);
+assert.equal(deletePushStore.pendingPushes.length, 0);
+assert.equal(await deletePushStore.getLocalPushFingerprint("notes/remove-me.md"), "");
+assert.equal(deleteReadCalls, 0);
+assert.equal(deleteBuildCalls, 0);
+assert.equal(deletePutCalls, 0);
+assert.equal(deletePushOutcome.metrics.deletedFiles, 1);
+assert.equal(deletePushOutcome.metrics.pushedFiles, 0);
+
 const applyBacklogStore = new MemoryStore([]);
 applyBacklogStore.pendingApply = 3;
 let applyBacklogCalls = 0;
@@ -724,6 +781,7 @@ console.log(JSON.stringify({
   retryBackoffSeconds: Math.ceil((failedRetry.nextAttemptAt - retryStartedAt) / 1000),
   retryDidNotBlockDuePush: retryPutCalls[0].bundles[0].fileDocument._id,
   noOpSkippedWithoutNetworkWrite: noOpOutcome.metrics.skippedFiles,
+  deletePushIds: deletedIds,
   automaticFirstSyncQueued: automaticFirstQueued,
   automaticFirstSyncPulledOwnUpload: automaticFirstPulled,
   progressPhases: [...new Set(progressEvents.map((event) => event.phase))],
