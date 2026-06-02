@@ -3,8 +3,8 @@
   "name": "Light-LiveSync",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Simple, low-contention CouchDB live sync for Obsidian with setup URI compatibility and encrypted vault sync.",
+  "description": "Simple, low-contention CouchDB live sync with setup URI compatibility and encrypted vault sync.",
   "author": "Light-LiveSync contributors",
-  "authorUrl": "https://github.com/NeuroCloud-Activate/Light-LiveSync",
+  "authorUrl": "https://github.com/NeuroCloud-Activate",
   "isDesktopOnly": false
 }
