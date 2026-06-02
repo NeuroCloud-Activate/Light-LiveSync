@@ -1,98 +1,139 @@
 # Lightweight LiveSync
 
-Lightweight LiveSync is a separate Obsidian plugin line forked from the ideas and data format of [Self-hosted LiveSync](https://github.com/vrtmrz/obsidian-livesync). It is intended to work with the same self-hosted CouchDB backend and the same existing setup URI flow, while keeping the sync path quieter, smaller, and easier to reason about.
+Lightweight LiveSync is an Obsidian sync plugin with a simple goal: keep your vault synced through your own CouchDB server without making Obsidian feel heavy.
 
-This project is not the upstream plugin. It is a conservative fork focused on:
+It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmrz/obsidian-livesync). The original plugin proved that CouchDB-backed Obsidian sync can be powerful, but it also accumulated a lot of options, rough edges, bugs, and performance issues for people who mostly wanted one thing: reliable live sync. This plugin focuses on doing that one job as cleanly as possible.
 
-- CouchDB self-hosted sync compatibility.
-- Existing `obsidian://setuplivesync?settings=...` setup URI intake and encrypted setup URI generation for adding devices.
-- End-to-end encryption required by default.
-- Low-noise background sync with 60-second edit batching by default.
-- Periodic sync as a fallback for missed events or mobile background limits.
-- Automatic text merges with local recovery backups.
-- Minimal status UI and diagnostics that help detect slow sync runs without constant monitoring.
+## What It Does
+
+- Syncs Obsidian notes through a self-hosted CouchDB backend.
+- Keeps compatibility with the familiar `obsidian://setuplivesync?settings=...` setup URI flow.
+- Requires end-to-end encryption by default.
+- Batches edits for 60 seconds by default so rapid typing does not spam the server.
+- Uses periodic sync as a fallback when mobile backgrounding or missed file events get in the way.
+- Automatically merges ordinary text edits and keeps recovery backups.
+- Keeps the status UI calm, small, and out of your way.
+- Includes runtime checks and a non-secret evidence report for troubleshooting.
+
+The short version: this is meant to feel boring in the best way. Set it up, let it sync, and stop thinking about it.
+
+## Built With Codex
+
+This project was built collaboratively with AI assistance through OpenAI Codex. The design, implementation, auditing, and test coverage were guided through an iterative human-plus-AI development workflow.
+
+## Why This Fork Exists
+
+Self-hosted LiveSync is feature-rich, but that breadth can also make it harder to debug, harder to configure, and easier to hit performance problems. Lightweight LiveSync intentionally narrows the scope.
+
+The focus here is:
+
+- Fewer moving parts.
+- Fewer settings to worry about.
+- Less network chatter.
+- Less CPU-heavy work on the main Obsidian thread.
+- Better defaults for poor connections and mobile devices.
+- A setup flow that explains what it is asking for.
+- A sync engine that prioritizes reliability over cleverness.
+
+This is not trying to replace every advanced feature from the original plugin. It is trying to make the core live-sync experience fast, understandable, and dependable.
 
 ## Compatibility
 
-The plugin stores vault content in the LiveSync-shaped CouchDB document model used by Self-hosted LiveSync. It supports:
+Lightweight LiveSync keeps the same CouchDB-style backend approach used by Self-hosted LiveSync. It is intended to work with existing self-hosted CouchDB deployments, including common Docker-based CouchDB setups.
 
-- CouchDB server URL, database, username, password, and custom headers.
-- Setup URI import from the upstream setup flow.
-- Add-device setup URI generation from an already-initialized first device.
-- Direct in-plugin CouchDB setup using the same field names as the upstream setup generator: `hostname`, `database`, `passphrase`, `username`, and `password`.
-- HKDF-encrypted note content and path obfuscation by default.
-- Desktop and mobile Obsidian plugin loading; the manifest is not desktop-only.
+It supports:
 
-The plugin is self-contained after bundling. Obsidian desktop and mobile devices do not need separate `npm`, `pnpm`, or `yarn` installs.
+- CouchDB server URL, database, username, password, and optional custom headers.
+- Existing Self-hosted LiveSync setup URI imports.
+- In-plugin direct setup using the same familiar fields: `hostname`, `database`, `passphrase`, `username`, and `password`.
+- Add-device setup URI generation from an already configured first device.
+- HKDF-encrypted synced content and path obfuscation.
+- Desktop and mobile Obsidian loading; the manifest is not desktop-only.
 
-## Adding Devices
+The bundled plugin is self-contained. Obsidian desktop and mobile devices do not need to install `npm`, `pnpm`, `yarn`, or any separate dependencies.
 
-The first device should create or verify the CouchDB database from inside the plugin, then run the connection check so LiveSync sync parameters exist.
+## Setup
 
-After that, add devices from the original device:
+The setup process is guided inside the plugin. The fields are described where you enter them, so you do not have to memorize the original setup script or decode what each value means.
 
-1. Open Lightweight LiveSync settings on the original device.
+For the first device:
+
+1. Open Lightweight LiveSync settings.
+2. Choose direct CouchDB setup.
+3. Enter the CouchDB host, database name, E2EE passphrase, username, and password.
+4. Let the plugin verify the connection.
+5. The plugin creates or verifies the database, prepares sync parameters, and requires E2EE before syncing.
+
+For another device:
+
+1. On the original device, open Lightweight LiveSync settings.
 2. Choose **Generate URI** under **Add another device**.
-3. Copy the encrypted `obsidian://setuplivesync?settings=...` URI to the new device.
-4. On the new device, choose **Use setup URI**, paste the URI, and enter the same shared E2EE passphrase.
+3. Copy the encrypted `obsidian://setuplivesync?settings=...` URI to the new device through a trusted channel.
+4. On the new device, choose **Use setup URI**.
+5. Enter the same shared E2EE passphrase.
 
-The generated add-device URI does not create a database. It only carries the existing CouchDB connection settings and E2EE settings for the database already initialized by the original device.
+Additional devices verify the existing database and sync parameters. They do not create the database or initialize sync parameters. That keeps database creation anchored to the first device and your CouchDB server permissions.
 
-Devices imported from a setup URI are treated as additional devices. Their connection check verifies the existing database and sync parameters but does not create the database or initialize sync parameters. If the check says sync parameters are missing, initialize them from the original device and then check the added device again.
+Each device still needs:
 
-Each device still needs three things:
+- Access to the same CouchDB server and database.
+- A CouchDB user allowed to read and write that database.
+- The same vault E2EE passphrase.
 
-1. The same CouchDB server and database.
-2. A CouchDB user that is allowed to read and write that database.
-3. The same vault E2EE passphrase.
-
-The easiest path is the generated add-device URI. If you use separate CouchDB users per device, a CouchDB server admin must create those users and add them to the database `_security` members or to a member role before the plugin can sync.
-
-The plugin does not create arbitrary CouchDB server users. That is intentional: user creation and database membership are server-side security decisions. When this plugin creates a new database itself, it attempts to restrict that database to the current CouchDB username before initializing sync parameters.
+The plugin does not create arbitrary CouchDB server users. That remains a server-administration task, which is safer and more predictable.
 
 ## Security
 
-E2EE is required by default. Note content and obfuscated paths are encrypted before sync when the vault passphrase and CouchDB sync-parameter salt are available.
+Security is a core part of the design, not an advanced mode.
 
-Use HTTPS or a trusted VPN/tunnel for CouchDB access. CouchDB Basic Authentication over plain HTTP exposes the CouchDB username and password to anyone who can observe the network. E2EE protects synced note content, but it does not protect the CouchDB account password in transit.
+- E2EE is required by default.
+- Raw CouchDB passwords and raw E2EE passphrases are blanked before settings are saved.
+- Saved credentials are stored in an encrypted local credential store.
+- Synced note content is encrypted before it reaches CouchDB.
+- Path obfuscation is enabled by default.
+- Add-device setup URIs are encrypted and should be treated like temporary invite codes.
 
-Recommended CouchDB server posture:
+Use HTTPS, a trusted VPN, or another protected network path for CouchDB. Vault E2EE protects note content, but CouchDB Basic Authentication over plain HTTP can still expose the CouchDB username and password on the network.
 
-- Use a real CouchDB admin account; do not run with open administrative access.
-- Keep CouchDB's default database security at `admin_only`, not `everyone`.
-- For each vault database, set database `_security` members or roles explicitly.
-- Give sync users only the database access they need.
-- Restrict network exposure with firewall rules, a VPN, reverse proxy authentication, or LAN-only access as appropriate.
-- Use TLS certificates trusted by every device that will sync.
+Recommended CouchDB posture:
 
-Official CouchDB references:
+- Use a real CouchDB admin account.
+- Do not expose CouchDB with open administrative access.
+- Keep database access restricted with `_security` members or roles.
+- Give sync users only the access they need.
+- Avoid public exposure unless protected by TLS, VPN, firewall rules, or a reverse proxy.
 
-- [CouchDB database security object](https://docs.couchdb.org/en/stable/api/database/security.html)
-- [CouchDB security overview](https://docs.couchdb.org/en/stable/intro/security.html)
-- [CouchDB HTTPS/TLS options](https://docs.couchdb.org/en/stable/config/http.html#https-tls-options)
-- [CouchDB default security option](https://docs.couchdb.org/en/stable/config/couchdb.html#couchdb/default_security)
+See [docs/security.md](docs/security.md) for the fuller security checklist.
 
-See [docs/security.md](docs/security.md) for a fuller audit checklist.
+## Lightweight Sync Design
 
-## Current Reliability Focus
+The plugin is optimized around minimal work and minimal data movement.
 
-The lightweight fork intentionally avoids broad startup scans and file-open sync. Sync work is coalesced through a single scheduler:
+- Edits batch for 60 seconds by default.
+- Multiple edits to the same file collapse into one queued push.
+- Unchanged saves are skipped after a matching upload fingerprint.
+- Each sync uploads a bounded number of local changes.
+- Large work yields back to Obsidian so the app can stay responsive.
+- A background worker is used when available, with a cooperative main-thread fallback.
+- Pulled CouchDB changes are cached locally in small batches.
+- Remote changes apply one file at a time with recovery backups.
+- Failed uploads use capped backoff and do not block unrelated due changes.
+- Automatic sync pauses when the runtime reports offline.
+- Periodic sync acts as the fallback safety net.
 
-- Vault changes batch for 60 seconds by default.
-- Repeated edits to the same path collapse into one queued local push.
-- Unchanged saves are skipped after a matching successful-upload fingerprint.
-- Each sync uploads only a bounded number of local changes.
-- The engine yields between queued uploads, and the no-worker fallback yields before and during larger main-thread bundle builds.
-- Pulled CouchDB changes are cached locally in small batches instead of one large IndexedDB transaction.
-- Pull apply yields around reconstruction and vault writes while still applying one file at a time.
-- Failed uploads use capped backoff and do not block other due changes.
-- Automatic sync pauses without contacting CouchDB when the device runtime reports offline; manual sync can still be used as an explicit retry.
-- Remote applies happen one file at a time with recovery backups.
-- Status messages are held briefly to avoid flicker.
+This is the heart of the plugin: sync reliably, use less data, and avoid turning background sync into the thing you notice.
 
-The plugin also records last-sync workload metrics: phase timings, local bytes read, chunk docs built, remote docs written/reused, pulled changes, applied/merged files, backups, and unresolved conflict counts.
+## Poor Connections
 
-## Build
+The plugin is designed to be patient with unstable networks.
+
+- It avoids repeated large transfers when the device is offline.
+- It keeps queued work local until sync can safely retry.
+- It uses bounded retries instead of tight retry loops.
+- Manual sync remains available when you want to force a retry.
+- Runtime status and evidence reports help confirm whether queues are settled.
+
+## Build And Test
 
 ```sh
 npm install
@@ -107,7 +148,7 @@ Or run the full local gate:
 npm run check
 ```
 
-`npm test` runs the root-safe harness suite for setup URI/QR compatibility, direct CouchDB setup behavior, connection role checks, credential/session cache safety, runtime desktop/mobile capability reporting, runtime evidence report redaction, desktop-only API safety, scheduler backoff, sync engine batching, worker fallback, reconstruction, text merge, status presentation, and bundle shape. Live CouchDB credential tests should be run separately with local environment variables and should not store credentials in source files.
+`npm test` covers setup URI and QR compatibility, direct CouchDB setup behavior, connection role checks, encrypted credential handling, session cache safety, desktop/mobile runtime reporting, evidence report redaction, scheduler backoff, sync batching, worker fallback, reconstruction, text merge, status presentation, and bundle shape.
 
 The GitHub Actions workflow runs the same `npm run check` gate for pushes and pull requests.
 
@@ -124,6 +165,10 @@ Release files are:
 - `sync-worker.js`
 - `styles.css`
 
-Before claiming mobile support is fully verified, run the device checklist in [docs/mobile-runtime-checklist.md](docs/mobile-runtime-checklist.md) on a real iOS or Android Obsidian install.
+## Mobile Testing
 
-For release auditing, see [docs/verification-matrix.md](docs/verification-matrix.md). For the remaining real-device mobile proof, use [docs/mobile-evidence-template.md](docs/mobile-evidence-template.md).
+The plugin is built to load on Obsidian desktop and mobile, but real mobile sync should still be tested on a real iOS or Android device before you rely on it everywhere.
+
+Use [docs/mobile-runtime-checklist.md](docs/mobile-runtime-checklist.md) for the device test and [docs/mobile-evidence-template.md](docs/mobile-evidence-template.md) to record non-secret results.
+
+For release auditing, see [docs/verification-matrix.md](docs/verification-matrix.md).
