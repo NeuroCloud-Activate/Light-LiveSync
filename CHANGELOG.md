@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.38
+
+- Moves the setup URI passphrase field above the setup URI block so iPhone keyboards do not cover the field during add-device setup.
+- Collapses an already-loaded setup URI behind an edit action, preventing long encrypted links from filling the mobile setup window.
+- Tracks the mobile visual viewport while setup fields are focused and scrolls the active field back into view after the iOS keyboard opens.
+
 ## 0.1.37
 
 - Makes setup, credential, and add-device modals scrollable and keyboard-safe on iPhone and iPadOS windowed layouts.

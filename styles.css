@@ -107,6 +107,8 @@
 .light-livesync-modal input {
   width: 100%;
   max-width: 100%;
+  min-height: 44px;
+  font-size: max(16px, var(--font-ui-medium));
 }
 
 .light-livesync-modal textarea {
@@ -115,8 +117,29 @@
 }
 
 .light-livesync-setup-uri-modal textarea {
-  min-height: 96px;
-  max-height: 34dvh;
+  height: 84px;
+  min-height: 84px;
+  max-height: 84px;
+  overflow-y: auto;
+  resize: none;
+  font-family: var(--font-monospace);
+  font-size: max(14px, var(--font-ui-small));
+}
+
+.light-livesync-setup-uri-modal h2 {
+  margin-bottom: 8px;
+}
+
+.light-livesync-setup-uri-modal p {
+  margin: 6px 0;
+}
+
+.light-livesync-setup-uri-modal .setting-item {
+  padding: 10px 0;
+}
+
+.light-livesync-setup-uri-modal .setting-item-description {
+  font-size: var(--font-ui-smaller);
 }
 
 .light-livesync-activity-console {
@@ -227,7 +250,13 @@
   }
 
   .light-livesync-modal textarea {
-    min-height: 88px;
-    max-height: 30dvh;
+    min-height: 76px;
+    max-height: 24dvh;
+  }
+
+  .light-livesync-setup-uri-modal textarea {
+    height: 68px;
+    min-height: 68px;
+    max-height: 68px;
   }
 }
