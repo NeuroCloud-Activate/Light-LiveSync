@@ -1,0 +1,28 @@
+{
+  "name": "lightweight-livesync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lightweight Obsidian LiveSync-compatible plugin focused on low-contention CouchDB sync.",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs dev",
+    "package": "npm run build && node scripts/package-release.mjs && node scripts/verify-release.mjs",
+    "verify:release": "node scripts/verify-release.mjs",
+    "test": "node tests/run-all.mjs",
+    "check": "npm run typecheck && npm test && npm run package",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "octagonal-wheels": "^0.1.45",
+    "xxhash-wasm-102": "npm:xxhash-wasm@^1.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.13",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "0.25.0",
+    "obsidian": "^1.12.3",
+    "typescript": "5.9.3"
+  }
+}

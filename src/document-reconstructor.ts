@@ -1,0 +1,316 @@
+import {
+  ENTRY_TYPES,
+  isLiveSyncChunkDocument,
+  isLiveSyncFileDocument,
+  type LiveSyncChunkDocument,
+  type LiveSyncFileDocument
+} from "./livesync-constants";
+import type { CachedRemoteDocument, LocalDocumentStore } from "./local-document-store";
+import {
+  decryptChunkDocument,
+  decryptFileDocument,
+  DocumentTransformError,
+  hasEncryptedMetadata,
+  isEncryptedChunk,
+  type DocumentTransformOptions
+} from "./document-transform";
+
+export type ReconstructionStatus =
+  | "ready"
+  | "deleted"
+  | "missing-chunks"
+  | "encrypted-unsupported"
+  | "unsupported";
+
+export type ReconstructedDocumentPreview = {
+  id: string;
+  rev: string;
+  path: string;
+  status: ReconstructionStatus;
+  contentType: "text" | "binary";
+  chunkCount: number;
+  byteLength: number;
+  content?: string | ArrayBuffer;
+  missingChunkIds?: string[];
+  reason?: string;
+};
+
+export type ReconstructionBatchSummary = {
+  checked: number;
+  ready: number;
+  deleted: number;
+  missingChunks: number;
+  encryptedUnsupported: number;
+  unsupported: number;
+  previews: ReconstructedDocumentPreview[];
+};
+
+type EdenChunk = {
+  data: string;
+  epoch?: number;
+};
+
+type ChunkLoadResult =
+  | {
+      status: "ready";
+      chunks: LiveSyncChunkDocument[];
+    }
+  | {
+      status: "missing-chunks";
+      missingChunkIds: string[];
+    }
+  | {
+      status: "encrypted-unsupported";
+      reason: string;
+    }
+  | {
+      status: "unsupported";
+      reason: string;
+    };
+
+type ReconstructionRuntimeOptions = {
+  yieldToUi?(): Promise<void>;
+  yieldEveryChunks?: number;
+};
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function base64ToArrayBuffer(value: string): ArrayBuffer {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+function contentKind(doc: LiveSyncFileDocument | undefined): "text" | "binary" {
+  return doc?.type === ENTRY_TYPES.NOTE_BINARY ? "binary" : "text";
+}
+
+function documentPath(doc: LiveSyncFileDocument): string {
+  return doc.path || doc._id;
+}
+
+function legacyContent(doc: LiveSyncFileDocument): string {
+  if (Array.isArray(doc.data)) {
+    return doc.data.join("");
+  }
+  return typeof doc.data === "string" ? doc.data : "";
+}
+
+function previewBase(
+  cached: CachedRemoteDocument,
+  status: ReconstructionStatus,
+  path: string,
+  doc?: LiveSyncFileDocument
+): ReconstructedDocumentPreview {
+  return {
+    id: cached.id,
+    rev: cached.rev,
+    path,
+    status,
+    contentType: contentKind(doc),
+    chunkCount: doc?.children?.length ?? 0,
+    byteLength: 0
+  };
+}
+
+function readyPreview(
+  cached: CachedRemoteDocument,
+  doc: LiveSyncFileDocument,
+  content: string | ArrayBuffer,
+  chunkCount: number
+): ReconstructedDocumentPreview {
+  return {
+    ...previewBase(cached, "ready", documentPath(doc), doc),
+    chunkCount,
+    byteLength: typeof content === "string" ? byteLength(content) : content.byteLength,
+    content
+  };
+}
+
+function isEdenChunk(value: unknown): value is EdenChunk {
+  return !!value && typeof value === "object" && typeof (value as { data?: unknown }).data === "string";
+}
+
+function edenChunk(doc: LiveSyncFileDocument, childId: string): LiveSyncChunkDocument | undefined {
+  const value = doc.eden?.[childId];
+  if (!isEdenChunk(value)) {
+    return undefined;
+  }
+  return {
+    _id: childId,
+    type: ENTRY_TYPES.CHUNK,
+    data: value.data
+  };
+}
+
+function contentFromChunks(doc: LiveSyncFileDocument, chunks: LiveSyncChunkDocument[]): string | ArrayBuffer {
+  const content = chunks.map((chunk) => chunk.data).join("");
+  return doc.type === ENTRY_TYPES.NOTE_BINARY ? base64ToArrayBuffer(content) : content;
+}
+
+export class DocumentReconstructor {
+  private readonly store: LocalDocumentStore;
+  private readonly transformOptions: DocumentTransformOptions;
+  private readonly runtime?: ReconstructionRuntimeOptions;
+
+  constructor(
+    store: LocalDocumentStore,
+    transformOptions: DocumentTransformOptions,
+    runtime?: ReconstructionRuntimeOptions
+  ) {
+    this.store = store;
+    this.transformOptions = transformOptions;
+    this.runtime = runtime;
+  }
+
+  async previewPending(limit: number): Promise<ReconstructionBatchSummary> {
+    return this.previewBatch(await this.store.getPendingApplyBatch(limit));
+  }
+
+  async previewPendingStaging(limit: number): Promise<ReconstructionBatchSummary> {
+    return this.previewBatch(await this.store.getPendingStagingBatch(limit));
+  }
+
+  async preview(cached: CachedRemoteDocument): Promise<ReconstructedDocumentPreview> {
+    if (!isLiveSyncFileDocument(cached.doc)) {
+      return this.unsupported(cached, "Cached document is not a LiveSync file document.");
+    }
+
+    const decrypted = await this.decryptFileOrReturnStatus(cached, cached.doc);
+    if ("status" in decrypted) {
+      return decrypted;
+    }
+    if (cached.deleted || decrypted._deleted || decrypted.deleted) {
+      return {
+        ...previewBase(cached, "deleted", documentPath(decrypted), decrypted),
+        reason: "Remote document is deleted."
+      };
+    }
+    if (decrypted.type === ENTRY_TYPES.NOTE_LEGACY) {
+      return readyPreview(cached, decrypted, legacyContent(decrypted), 0);
+    }
+    if (decrypted.type !== ENTRY_TYPES.NOTE_BINARY && decrypted.type !== ENTRY_TYPES.NOTE_PLAIN) {
+      return this.unsupported(cached, `Unsupported LiveSync file type: ${decrypted.type}`);
+    }
+
+    return this.previewChunkedDocument(cached, decrypted);
+  }
+
+  private async previewBatch(pending: CachedRemoteDocument[]): Promise<ReconstructionBatchSummary> {
+    const previews = [];
+    for (const cached of pending) {
+      await this.runtime?.yieldToUi?.();
+      previews.push(await this.preview(cached));
+      await this.runtime?.yieldToUi?.();
+    }
+    return this.summarise(previews);
+  }
+
+  private async previewChunkedDocument(
+    cached: CachedRemoteDocument,
+    doc: LiveSyncFileDocument
+  ): Promise<ReconstructedDocumentPreview> {
+    const loaded = await this.loadChunks(doc);
+    if (loaded.status === "ready") {
+      return readyPreview(cached, doc, contentFromChunks(doc, loaded.chunks), loaded.chunks.length);
+    }
+    if (loaded.status === "missing-chunks") {
+      return {
+        ...previewBase(cached, "missing-chunks", documentPath(doc), doc),
+        missingChunkIds: loaded.missingChunkIds,
+        reason: `Missing ${loaded.missingChunkIds.length} of ${doc.children?.length ?? 0} chunks.`
+      };
+    }
+    return {
+      ...previewBase(cached, loaded.status, documentPath(doc), doc),
+      reason: loaded.reason
+    };
+  }
+
+  private async loadChunks(doc: LiveSyncFileDocument): Promise<ChunkLoadResult> {
+    const children = doc.children ?? [];
+    const cachedChunks = await this.store.getCachedDocuments(children);
+    const chunks: LiveSyncChunkDocument[] = [];
+    const missingChunkIds: string[] = [];
+
+    for (const [index, childId] of children.entries()) {
+      const chunk = cachedChunks.get(childId)?.doc ?? edenChunk(doc, childId);
+      if (!chunk) {
+        missingChunkIds.push(childId);
+        continue;
+      }
+      if (!isLiveSyncChunkDocument(chunk)) {
+        return { status: "unsupported", reason: `Cached chunk is not a leaf document: ${childId}` };
+      }
+
+      const decrypted = await this.decryptChunkOrReturnStatus(chunk);
+      if ("status" in decrypted) {
+        return decrypted;
+      }
+      chunks.push(decrypted);
+      const yieldEveryChunks = Math.max(1, this.runtime?.yieldEveryChunks ?? 8);
+      if (this.runtime?.yieldToUi && index + 1 < children.length && (index + 1) % yieldEveryChunks === 0) {
+        await this.runtime.yieldToUi();
+      }
+    }
+
+    return missingChunkIds.length > 0 ? { status: "missing-chunks", missingChunkIds } : { status: "ready", chunks };
+  }
+
+  private async decryptChunkOrReturnStatus(
+    chunk: LiveSyncChunkDocument
+  ): Promise<LiveSyncChunkDocument | ChunkLoadResult> {
+    try {
+      return await decryptChunkDocument(chunk, this.transformOptions);
+    } catch (error) {
+      if (!(error instanceof DocumentTransformError) && !isEncryptedChunk(chunk)) {
+        throw error;
+      }
+      return {
+        status: "encrypted-unsupported",
+        reason: error instanceof Error ? error.message : "Encrypted chunk reconstruction failed."
+      };
+    }
+  }
+
+  private async decryptFileOrReturnStatus(
+    cached: CachedRemoteDocument,
+    doc: LiveSyncFileDocument
+  ): Promise<LiveSyncFileDocument | ReconstructedDocumentPreview> {
+    try {
+      return await decryptFileDocument(doc, this.transformOptions);
+    } catch (error) {
+      if (!(error instanceof DocumentTransformError) && !hasEncryptedMetadata(doc)) {
+        throw error;
+      }
+      return {
+        ...previewBase(cached, "encrypted-unsupported", documentPath(doc), doc),
+        reason: error instanceof Error ? error.message : "Encrypted metadata reconstruction failed."
+      };
+    }
+  }
+
+  private unsupported(cached: CachedRemoteDocument, reason: string): ReconstructedDocumentPreview {
+    return {
+      ...previewBase(cached, "unsupported", cached.doc?.path ?? cached.id, cached.doc as LiveSyncFileDocument | undefined),
+      reason
+    };
+  }
+
+  private summarise(previews: ReconstructedDocumentPreview[]): ReconstructionBatchSummary {
+    return {
+      checked: previews.length,
+      ready: previews.filter((preview) => preview.status === "ready").length,
+      deleted: previews.filter((preview) => preview.status === "deleted").length,
+      missingChunks: previews.filter((preview) => preview.status === "missing-chunks").length,
+      encryptedUnsupported: previews.filter((preview) => preview.status === "encrypted-unsupported").length,
+      unsupported: previews.filter((preview) => preview.status === "unsupported").length,
+      previews
+    };
+  }
+}

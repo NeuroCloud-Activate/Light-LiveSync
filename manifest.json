@@ -1,0 +1,10 @@
+{
+  "id": "lightweight-livesync",
+  "name": "Lightweight LiveSync",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "A conservative Self-hosted LiveSync-compatible sync plugin focused on low contention and setup URI compatibility.",
+  "author": "Lightweight LiveSync contributors",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
