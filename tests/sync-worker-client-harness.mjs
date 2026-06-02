@@ -39,6 +39,55 @@ const unavailableClient = new OptionalSyncWorkerClient({
 });
 const unavailableResult = await unavailableClient.buildPushBundle(snapshot, options);
 
+let blobWorkerSourceReads = 0;
+let blobWorkerConstructedWith = "";
+const originalWorker = globalThis.Worker;
+globalThis.Worker = class FakeWorker {
+  constructor(url) {
+    blobWorkerConstructedWith = url;
+  }
+
+  postMessage(message) {
+    setTimeout(() => {
+      this.onmessage?.({
+        data: {
+          id: message.id,
+          ok: true,
+          result: {
+            fileDocument: {
+              _id: message.snapshot.path,
+              type: "plain",
+              eden: {},
+              path: message.snapshot.path,
+              mtime: message.snapshot.mtime,
+              ctime: message.snapshot.ctime,
+              size: message.snapshot.size,
+              children: []
+            },
+            chunkDocuments: []
+          }
+        }
+      });
+    }, 0);
+  }
+
+  terminate() {}
+};
+const blobWorkerLogs = [];
+const blobWorkerClient = new OptionalSyncWorkerClient({
+  enabled: () => true,
+  scriptUrl: () => "blocked-app-url.js",
+  scriptSource: async () => {
+    blobWorkerSourceReads += 1;
+    return "self.onmessage = () => {};";
+  },
+  yieldToUi: async () => {},
+  log: (message) => blobWorkerLogs.push(message)
+});
+const blobWorkerResult = await blobWorkerClient.buildPushBundle(snapshot, options);
+blobWorkerClient.dispose();
+globalThis.Worker = originalWorker;
+
 let largeFallbackYields = 0;
 const largeFallbackClient = new OptionalSyncWorkerClient({
   enabled: () => false,
@@ -61,17 +110,23 @@ assert.equal(unavailableYields, 1);
 assert.ok(largeFallbackYields > 1, `expected cooperative yields during a large main-thread fallback build, got ${largeFallbackYields}`);
 assert.equal(disabledResult.fileDocument._id, "fallback.md");
 assert.equal(unavailableResult.fileDocument._id, "fallback.md");
+assert.equal(blobWorkerResult.fileDocument._id, "fallback.md");
+assert.equal(blobWorkerSourceReads, 1);
+assert.match(blobWorkerConstructedWith, /^blob:/);
+assert.equal(blobWorkerLogs.length, 0);
 assert.equal(largeFallbackResult.fileDocument._id, "large-fallback.md");
 assert.ok(largeFallbackResult.chunkDocuments.length > 1);
-assert.match(unavailableLogs.join(" "), /Background worker unavailable/);
+assert.match(unavailableLogs.join(" "), /Background worker failed/);
 
 console.log(JSON.stringify({
   ok: true,
   disabledYields,
   unavailableYields,
+  blobWorkerSourceReads,
+  blobWorkerStarted: /^blob:/.test(blobWorkerConstructedWith),
   largeFallbackYields,
   disabledChunks: disabledResult.chunkDocuments.length,
   unavailableChunks: unavailableResult.chunkDocuments.length,
   largeFallbackChunks: largeFallbackResult.chunkDocuments.length,
-  fallbackLogged: /Background worker unavailable/.test(unavailableLogs.join(" "))
+  fallbackLogged: /Background worker failed/.test(unavailableLogs.join(" "))
 }, null, 2));

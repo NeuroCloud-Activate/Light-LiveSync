@@ -92,13 +92,16 @@ export class SyncScheduler {
 
       try {
         const result = await this.engine.sync(reason);
-        this.host.setStatus(result.message);
         if (!result.ok) {
+          this.host.setStatus(result.message);
           this.host.log(result.message);
           this.recordFailureCooldown();
         } else if (result.continueSync) {
+          this.host.setStatus("Syncing");
           this.host.log("More sync work is still queued, so Light-LiveSync will continue with another sync pass automatically.");
           this.queuedReason = reason;
+        } else {
+          this.host.setStatus(result.message);
         }
         this.host.onSyncFinish?.({ reason, startedAt, finishedAt: Date.now(), result });
       } catch (error) {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.17
+
+- Simplifies the status bar to `Ready`, `Syncing`, and `Completed`; completed syncs hold for 3 seconds before returning to ready.
+- Keeps upload/download values in the status bar as KBps rates only.
+- Loads the sync worker from the local bundled source as a Blob worker to avoid blocked Obsidian `app://` worker URLs.
+- Keeps worker startup failures visible in the Activity log with a short diagnostic and uses the main-thread builder only as a fallback.
+- Adds session RAM caches for pushed fingerprints, worker source, and progress-log persistence to reduce repeated IndexedDB/settings writes during sync.
+- Shows recovery backup restore controls on the main Sync tab as well as Sync activity, with clearer wording when no backup was created.
+
 ## 0.1.16
 
 - Changes the status bar to show upload/download data rates as `LLS:Status (#U/#D KBps)` instead of file counts.

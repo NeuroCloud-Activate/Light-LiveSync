@@ -17,7 +17,7 @@ It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmr
 - Syncs vault configuration and plugin data along with notes.
 - Uses periodic sync as a fallback when mobile backgrounding or missed file events get in the way.
 - Automatically merges ordinary text edits, keeps recovery backups, and lets you restore from those backups in settings.
-- Keeps the status UI calm and small with compact `LLS:Status (#U/#D KBps)` data rates, while file counts and detail stay in the Activity tab.
+- Keeps the status UI calm and small: `Ready`, `Syncing`, or `Completed`, with upload/download KBps rates while active and detailed counts in the Activity tab.
 - Includes runtime checks and a non-secret evidence report for troubleshooting.
 
 The short version: this is meant to feel boring in the best way. Set it up, let it sync, and stop thinking about it.

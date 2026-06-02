@@ -113,6 +113,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private statusUploadRate = "0";
   private statusDownloadRate = "0";
   private activityLogListeners = new Set<() => void>();
+  private completedStatusTimer?: number;
+  private workerScriptSourceCache?: string;
+  private runtimeDiagnosticsSaveTimer?: number;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -147,6 +150,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.workerClient = new OptionalSyncWorkerClient({
       enabled: () => this.settings.useBackgroundWorker,
       scriptUrl: () => this.workerScriptUrl(),
+      scriptSource: () => this.workerScriptSource(),
       yieldToUi: () => this.yieldToUi(),
       log: (message) => this.log(message)
     });
@@ -180,6 +184,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.scheduler?.cancel();
     this.workerClient?.dispose();
     this.statusPresenter?.cancel();
+    this.clearCompletedStatusTimer();
+    this.clearRuntimeDiagnosticsSaveTimer();
     this.clearPeriodicTimer();
     this.clearVaultChangeBatchTimer();
     for (const store of this.localStores.values()) {
@@ -1423,6 +1429,21 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private async updateRemoteInspection(inspection: RemoteInspection): Promise<void> {
+    const current = this.settings.remoteState;
+    const unchanged =
+      current.databaseName === inspection.databaseName &&
+      current.documentCount === inspection.documentCount &&
+      current.updateSequence === inspection.updateSequence &&
+      current.syncParametersPresent === inspection.syncParametersPresent &&
+      current.milestonePresent === inspection.milestonePresent &&
+      current.sampledNotes === inspection.sample.notes &&
+      current.sampledChunks === inspection.sample.chunks &&
+      current.sampledDeleted === inspection.sample.deleted &&
+      current.sampledUnknown === inspection.sample.unknown &&
+      current.syncParameterSalt === inspection.syncParameterSalt;
+    if (unchanged) {
+      return;
+    }
     const remoteState: RemoteInspectionState = {
       lastCheckedAt: Date.now(),
       databaseName: inspection.databaseName,
@@ -1461,6 +1482,17 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private async updateLocalQueue(summary: LocalStoreSummary): Promise<void> {
+    const current = this.settings.localQueue;
+    const unchanged =
+      current.lastRemoteSeq === summary.lastRemoteSeq &&
+      current.files === summary.files &&
+      current.chunks === summary.chunks &&
+      current.deleted === summary.deleted &&
+      current.pendingApply === summary.pendingApply &&
+      current.pendingPush === summary.pendingPush;
+    if (unchanged) {
+      return;
+    }
     const localQueue: LocalQueueState = {
       lastPulledAt: Date.now(),
       lastRemoteSeq: summary.lastRemoteSeq,
@@ -1530,6 +1562,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private recordSyncStart(reason: string, startedAt: number): void {
     this.lastProgressLogAt = 0;
+    this.clearCompletedStatusTimer();
     this.statusUploadRate = "0";
     this.statusDownloadRate = "0";
     const runtime: RuntimeDiagnosticsState = {
@@ -1548,6 +1581,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       ...this.settings,
       runtime
     };
+    this.setStatus("Syncing");
     this.log(`${friendlySyncReason(reason)} sync started.`);
     void this.saveRuntimeDiagnostics();
   }
@@ -1606,14 +1640,36 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     };
     if (failed) {
       this.log(`${friendlySyncReason(details.reason)} sync stopped with an issue: ${runtime.lastSyncError || runtime.lastSyncMessage}`);
+    } else if (details.result?.ok && details.result.continueSync) {
+      this.setStatus("Syncing");
+      this.log(`${friendlySyncReason(details.reason)} sync pass finished. ${runtime.lastSyncMessage || "More sync work remains."}`);
     } else {
+      this.showCompletedStatus();
       this.log(`${friendlySyncReason(details.reason)} sync finished. ${runtime.lastSyncMessage || "No remaining work reported."}`);
     }
     void this.saveRuntimeDiagnostics();
   }
 
   private async saveRuntimeDiagnostics(): Promise<void> {
+    this.clearRuntimeDiagnosticsSaveTimer();
     await this.saveData(settingsForDisk(this.settings));
+  }
+
+  private scheduleRuntimeDiagnosticsSave(delayMs = 1500): void {
+    if (this.runtimeDiagnosticsSaveTimer !== undefined) {
+      return;
+    }
+    this.runtimeDiagnosticsSaveTimer = window.setTimeout(() => {
+      this.runtimeDiagnosticsSaveTimer = undefined;
+      void this.saveRuntimeDiagnostics();
+    }, delayMs);
+  }
+
+  private clearRuntimeDiagnosticsSaveTimer(): void {
+    if (this.runtimeDiagnosticsSaveTimer !== undefined) {
+      window.clearTimeout(this.runtimeDiagnosticsSaveTimer);
+      this.runtimeDiagnosticsSaveTimer = undefined;
+    }
   }
 
   private getLocalStore(databaseName: string): LocalDocumentStore {
@@ -1777,9 +1833,29 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (typeof adapter.getResourcePath !== "function") {
       return undefined;
     }
+    return adapter.getResourcePath(`${this.pluginInstallDir()}/sync-worker.js`);
+  }
+
+  private async workerScriptSource(): Promise<string | undefined> {
+    if (this.workerScriptSourceCache) {
+      return this.workerScriptSourceCache;
+    }
+    const adapter = this.app.vault.adapter as VaultListAdapter;
+    if (typeof adapter.read !== "function") {
+      return undefined;
+    }
+    try {
+      this.workerScriptSourceCache = await adapter.read(`${this.pluginInstallDir()}/sync-worker.js`);
+      return this.workerScriptSourceCache;
+    } catch (error) {
+      this.log(`Background worker source could not be read from the plugin folder. ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
+  }
+
+  private pluginInstallDir(): string {
     const manifest = this.manifest as { dir?: string; id: string };
-    const pluginDir = manifest.dir ?? `${this.app.vault.configDir}/plugins/${manifest.id}`;
-    return adapter.getResourcePath(`${pluginDir}/sync-worker.js`);
+    return manifest.dir ?? `${this.app.vault.configDir}/plugins/${manifest.id}`;
   }
 
   private previewExportFolder(): string {
@@ -1815,6 +1891,26 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private setStatus(message: string): void {
     this.statusPresenter?.set(message);
+  }
+
+  private showCompletedStatus(): void {
+    this.clearCompletedStatusTimer();
+    this.statusUploadRate = "0";
+    this.statusDownloadRate = "0";
+    this.setStatus("Completed");
+    this.completedStatusTimer = window.setTimeout(() => {
+      this.completedStatusTimer = undefined;
+      this.statusUploadRate = "0";
+      this.statusDownloadRate = "0";
+      this.setStatus("Ready");
+    }, 3000);
+  }
+
+  private clearCompletedStatusTimer(): void {
+    if (this.completedStatusTimer !== undefined) {
+      window.clearTimeout(this.completedStatusTimer);
+      this.completedStatusTimer = undefined;
+    }
   }
 
   private reportSyncProgress(progress: SyncProgress): void {
@@ -1906,7 +2002,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
     this.lastProgressLogAt = now;
     this.log(message);
-    void this.saveRuntimeDiagnostics();
+    this.scheduleRuntimeDiagnosticsSave();
   }
 
   private compactStatus(message: string): string {
@@ -1914,47 +2010,34 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!trimmed) {
       return this.formatStatusBar("Ready");
     }
-    if (/loaded/i.test(trimmed)) {
-      return this.formatStatusBar("Loaded");
-    }
-    if (/ready|quiet|no action/i.test(trimmed)) {
+    if (/loaded|ready|quiet|no action|batching|sync queued|queued sync|scheduled/i.test(trimmed)) {
       return this.formatStatusBar("Ready");
-    }
-    if (/batching/i.test(trimmed)) {
-      const seconds = trimmed.match(/(\d+)s/)?.[1];
-      return this.formatStatusBar(seconds ? `Batch ${seconds}s` : "Batching");
     }
     const upload = trimmed.match(/^Upload(?:ing)?\s+(\d+)\/(\d+)(?:\s+·\s+(.+))?$/i);
     if (upload) {
-      return this.formatStatusBar("Uploading");
+      return this.formatStatusBar("Syncing");
     }
     const download = trimmed.match(/^Down(?:load)?\s+(\d+)\/(\d+)(?:\s+·\s+(.+))?$/i);
     if (download) {
-      return this.formatStatusBar("Downloading");
+      return this.formatStatusBar("Syncing");
     }
-    if (/upload done/i.test(trimmed)) {
-      return this.formatStatusBar("Uploaded");
+    if (/upload done|down done|no downloads/i.test(trimmed)) {
+      return this.formatStatusBar("Syncing");
     }
-    if (/down done/i.test(trimmed)) {
-      return this.formatStatusBar("Downloaded");
+    if (/checking server|checking downloads|^apply \d+/i.test(trimmed)) {
+      return this.formatStatusBar("Syncing");
     }
-    if (/checking server/i.test(trimmed)) {
-      return this.formatStatusBar("Checking");
-    }
-    if (/checking downloads/i.test(trimmed)) {
-      return this.formatStatusBar("Checking");
-    }
-    if (/^apply \d+/i.test(trimmed)) {
-      return this.formatStatusBar("Applying");
+    if (/completed/i.test(trimmed)) {
+      return this.formatStatusBar("Completed", "0", "0");
     }
     if (/^(Pushed|Uploaded) \d+/i.test(trimmed)) {
-      return this.formatStatusBar("Synced", "0", "0");
+      return this.formatStatusBar("Completed", "0", "0");
     }
     if (/sync is running|sync queued|connecting|checking|retrying|scanning/i.test(trimmed)) {
       return this.formatStatusBar("Syncing");
     }
     if (/copied|uri ready|imported|connected|updated|passed|written/i.test(trimmed)) {
-      return this.formatStatusBar("OK");
+      return this.formatStatusBar("Ready");
     }
     if (/offline/i.test(trimmed)) {
       return this.formatStatusBar("Offline");
@@ -1962,7 +2045,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (/failed|error|attention|could not|missing|locked|rejected|blocked/i.test(trimmed)) {
       return this.formatStatusBar("Issue");
     }
-    return this.formatStatusBar(trimmed.length > 18 ? `${trimmed.slice(0, 17).trim()}...` : trimmed);
+    return this.formatStatusBar("Ready");
   }
 
   private formatStatusBar(status: string, uploadRate = this.statusUploadRate, downloadRate = this.statusDownloadRate): string {

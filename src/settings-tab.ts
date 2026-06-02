@@ -83,6 +83,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.renderSetupSection(containerEl);
     this.renderConnectionSection(containerEl);
     this.renderAutomaticSyncSummary(containerEl);
+    this.renderRecoveryBackups(containerEl);
   }
 
   private renderAdvancedTab(containerEl: SettingsContainer): void {
@@ -754,7 +755,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.section(containerEl, "Recover from backups");
     new Setting(containerEl)
       .setName("Recovery backups")
-      .setDesc("Restore a file from one of the backups created before an overwrite, merge, or delete. If the original file exists, the current version is backed up before restore.")
+      .setDesc("Restore a file from one of the backups created before an overwrite, merge, or delete. If the original file exists, the existing version is backed up before restore.")
       .addButton((button) => {
         button.setButtonText("Refresh").onClick(() => this.display());
       });
@@ -767,7 +768,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       .then((backups) => {
         listEl.empty();
         if (backups.length === 0) {
-          listEl.createEl("p", { text: "No recovery backups found yet." });
+          listEl.createEl("p", { text: "No recovery backups found yet. Backups are created only when a local file is about to be overwritten, merged, or deleted; a failed remote apply may stop before a backup is needed." });
           return;
         }
         for (const backup of backups) {

@@ -119,6 +119,7 @@ function compareSeq(left: string, right: string): number {
 
 export class LocalDocumentStore {
   private db?: IDBDatabase;
+  private readonly fingerprintCache = new Map<string, string>();
 
   constructor(private readonly databaseName: string) {}
 
@@ -172,6 +173,7 @@ export class LocalDocumentStore {
   close(): void {
     this.db?.close();
     this.db = undefined;
+    this.fingerprintCache.clear();
   }
 
   async getCheckpoint(): Promise<LocalSyncCheckpoint> {
@@ -356,16 +358,23 @@ export class LocalDocumentStore {
   }
 
   async getLocalPushFingerprint(path: string): Promise<string> {
+    const cached = this.fingerprintCache.get(path);
+    if (cached !== undefined) {
+      return cached;
+    }
     const db = await this.requireDb();
     const transaction = db.transaction(PUSH_FINGERPRINT_STORE, "readonly");
     const done = txDone(transaction);
     const store = transaction.objectStore(PUSH_FINGERPRINT_STORE);
     const existing = await dbRequest<LocalPushFingerprint | undefined>(store.get(path));
     await done;
-    return existing?.fingerprint ?? "";
+    const fingerprint = existing?.fingerprint ?? "";
+    this.fingerprintCache.set(path, fingerprint);
+    return fingerprint;
   }
 
   async setLocalPushFingerprint(path: string, fingerprint: string): Promise<void> {
+    this.fingerprintCache.set(path, fingerprint);
     const db = await this.requireDb();
     const transaction = db.transaction(PUSH_FINGERPRINT_STORE, "readwrite");
     const done = txDone(transaction);
@@ -386,6 +395,7 @@ export class LocalDocumentStore {
     const done = txDone(transaction);
     const store = transaction.objectStore(PUSH_FINGERPRINT_STORE);
     for (const path of paths) {
+      this.fingerprintCache.delete(path);
       store.delete(path);
     }
     await done;
