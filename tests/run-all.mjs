@@ -9,6 +9,7 @@ const tsHarnesses = [
   "couchdb-transport-harness.mjs",
   "direct-setup-harness.mjs",
   "document-reconstructor-harness.mjs",
+  "local-document-store-harness.mjs",
   "live-vault-applier-harness.mjs",
   "recovery-backups-harness.mjs",
   "runtime-capabilities-harness.mjs",

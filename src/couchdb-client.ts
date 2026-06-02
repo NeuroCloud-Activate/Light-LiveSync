@@ -6,7 +6,7 @@ import { versionDocumentRangeForFile } from "./version-history";
 export type CouchDbInfo = {
   db_name: string;
   doc_count: number;
-  update_seq: string | number;
+  update_seq: unknown;
   sizes?: Record<string, number>;
 };
 
@@ -18,7 +18,7 @@ export type CouchDbServerInfo = {
 
 export type CouchDbChange = {
   id: string;
-  seq: string | number;
+  seq: unknown;
   deleted?: boolean;
   doc?: LiveSyncDocument;
 };
@@ -139,6 +139,20 @@ const SYSTEM_TYPES = new Set<string>([
 const COUCHDB_REQUEST_TIMEOUT_MS = 20_000;
 const MAX_BULK_DOCS_PER_REQUEST = 100;
 const MAX_BULK_DOCS_BODY_BYTES = 768 * 1024;
+
+function sequenceToString(value: unknown, fallback = "0"): string {
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value);
+  }
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return fallback;
+  }
+}
 
 function encodeBasicAuth(username: string, password: string): string | undefined {
   if (!username && !password) {
@@ -270,7 +284,7 @@ export class CouchDbClient {
       serverVersion: serverInfo.version ?? "unknown",
       databaseName: dbInfo.db_name,
       documentCount: dbInfo.doc_count,
-      updateSequence: String(dbInfo.update_seq),
+      updateSequence: sequenceToString(dbInfo.update_seq),
       syncParametersPresent: !!syncParameters,
       syncParameterSalt: typeof syncParameters?.pbkdf2salt === "string" ? syncParameters.pbkdf2salt : "",
       milestonePresent: !!milestone,
@@ -371,17 +385,18 @@ export class CouchDbClient {
   }
 
   async getChangesSince(since: string | number, limit: number): Promise<PullRemoteChangesResult> {
+    const sinceSeq = sequenceToString(since);
     const query = new URLSearchParams({
       include_docs: "true",
       limit: String(limit),
-      since: String(since || "0")
+      since: sinceSeq
     });
-    const result = await this.requestJson<{ results?: CouchDbChange[]; last_seq?: string | number }>(
+    const result = await this.requestJson<{ results?: CouchDbChange[]; last_seq?: unknown }>(
       `_changes?${query.toString()}`
     );
     return {
       changes: result.results ?? [],
-      lastSeq: String(result.last_seq ?? since ?? "0")
+      lastSeq: sequenceToString(result.last_seq, sinceSeq)
     };
   }
 

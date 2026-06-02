@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.27
+
+- Stops repeated mobile re-downloads by saving CouchDB's returned checkpoint after every successful pull window.
+- Keeps already-applied remote files marked applied when the same CouchDB document revision is replayed.
+- Reduces each CouchDB pull window from 1000 to 250 document changes while still caching internally in smaller batches.
+- Adds clearer Activity log checkpoint details so repeated polling can be diagnosed without a noisy status bar.
+
 ## 0.1.26
 
 - Prevents malformed remote binary content from stopping startup sync by treating invalid base64 as a per-file unsupported apply item.

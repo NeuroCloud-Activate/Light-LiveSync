@@ -100,6 +100,8 @@ export type SyncProgress =
       total: number;
       bytes: number;
       startedAt: number;
+      since: string;
+      lastSeq: string;
     }
   | {
       phase: "apply-start";
@@ -160,7 +162,7 @@ type PulledRemoteChanges = {
   reachedRemoteEnd: boolean;
 };
 
-const REMOTE_PULL_LIMIT = 1000;
+const REMOTE_PULL_LIMIT = 250;
 const REMOTE_CACHE_BATCH_SIZE = 50;
 const AUTOMATIC_FULL_VAULT_SCAN_REASONS = new Set<SyncReason>([
   "startup",
@@ -396,7 +398,7 @@ export class LightweightSyncEngine {
       });
       await this.host.yieldToUi?.();
     }
-    if (pulled.changes.length === 0 && pulled.lastSeq !== checkpoint.lastRemoteSeq) {
+    if (pulled.lastSeq !== checkpoint.lastRemoteSeq) {
       await localStore.setCheckpoint(pulled.lastSeq);
       summary = await localStore.getSummary();
     }
@@ -405,7 +407,9 @@ export class LightweightSyncEngine {
       phase: "pull-complete",
       total: pulled.changes.length,
       bytes: pulledBytes,
-      startedAt: pullStartedAt
+      startedAt: pullStartedAt,
+      since: checkpoint.lastRemoteSeq,
+      lastSeq: pulled.lastSeq
     });
     return {
       pulledCount: pulled.changes.length,

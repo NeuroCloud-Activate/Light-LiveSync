@@ -63,7 +63,7 @@ export type LocalPushFingerprint = {
 
 export type RemoteDocumentChange = {
   id: string;
-  seq: string | number;
+  seq: unknown;
   deleted?: boolean;
   doc?: LiveSyncDocument;
 };
@@ -117,11 +117,60 @@ function compareSeq(left: string, right: string): number {
   return left.localeCompare(right);
 }
 
+function seqToString(value: unknown, fallback = "0"): string {
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value);
+  }
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return fallback;
+  }
+}
+
+export function cachedRemoteDocumentFromChange(
+  change: RemoteDocumentChange,
+  previous: CachedRemoteDocument | undefined,
+  pulledAt: number
+): CachedRemoteDocument {
+  const changeDeleted = !!change.deleted || !!change.doc?._deleted;
+  const doc =
+    changeDeleted && !documentHasKnownKind(change.doc) && previous?.doc
+      ? {
+          ...previous.doc,
+          _rev: change.doc?._rev ?? previous.rev,
+          _deleted: true,
+          deleted: true
+        }
+      : change.doc;
+  const rev = doc?._rev ?? change.doc?._rev ?? previous?.rev ?? "";
+  const kind = classifyDocument(change.id, doc);
+  const deleted = changeDeleted || !!doc?._deleted;
+  const sameRemoteRevision = !!previous && previous.rev === rev && previous.deleted === deleted;
+  return {
+    id: change.id,
+    rev,
+    seq: seqToString(change.seq),
+    pulledAt,
+    stagedAt: sameRemoteRevision ? previous.stagedAt ?? 0 : 0,
+    appliedAt: sameRemoteRevision ? previous.appliedAt ?? 0 : 0,
+    deleted,
+    kind,
+    doc
+  };
+}
+
 export class LocalDocumentStore {
   private db?: IDBDatabase;
   private readonly fingerprintCache = new Map<string, string>();
+  private readonly databaseName: string;
 
-  constructor(private readonly databaseName: string) {}
+  constructor(databaseName: string) {
+    this.databaseName = databaseName;
+  }
 
   static async deleteDatabase(databaseName: string): Promise<void> {
     if (!databaseName || typeof indexedDB === "undefined") {
@@ -204,30 +253,9 @@ export class LocalDocumentStore {
     let lastSeq = "";
 
     for (const change of changes) {
-      lastSeq = String(change.seq);
+      lastSeq = seqToString(change.seq);
       const previous = await dbRequest<CachedRemoteDocument | undefined>(documents.get(change.id));
-      const changeDeleted = !!change.deleted || !!change.doc?._deleted;
-      const doc =
-        changeDeleted && !documentHasKnownKind(change.doc) && previous?.doc
-          ? {
-              ...previous.doc,
-              _rev: change.doc?._rev ?? previous.rev,
-              _deleted: true,
-              deleted: true
-            }
-          : change.doc;
-      const cached: CachedRemoteDocument = {
-        id: change.id,
-        rev: doc?._rev ?? change.doc?._rev ?? previous?.rev ?? "",
-        seq: String(change.seq),
-        pulledAt,
-        stagedAt: 0,
-        appliedAt: 0,
-        deleted: changeDeleted || !!doc?._deleted,
-        kind: classifyDocument(change.id, doc),
-        doc
-      };
-      documents.put(cached);
+      documents.put(cachedRemoteDocumentFromChange(change, previous, pulledAt));
     }
 
     if (lastSeq) {

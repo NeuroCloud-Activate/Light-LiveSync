@@ -593,6 +593,62 @@ assert.equal(pullBatchYields, 4);
 assert.equal(pullBatchOutcome.metrics.pulledChanges, 60);
 assert.equal((await pullBatchStore.getSummary()).pendingApply, 60);
 
+class PullCheckpointStore extends MemoryStore {
+  constructor() {
+    super([]);
+    this.checkpoints = [];
+  }
+
+  async cacheRemoteChanges(changes) {
+    if (changes.length > 0) {
+      this.lastRemoteSeq = String(changes.at(-1).seq);
+      this.pendingApply += changes.length;
+    }
+    return this.getSummary();
+  }
+
+  async setCheckpoint(lastSeq) {
+    this.checkpoints.push(String(lastSeq));
+    this.lastRemoteSeq = String(lastSeq);
+  }
+}
+
+const pullCheckpointStore = new PullCheckpointStore();
+const pullCheckpointEngine = new LightweightSyncEngine({
+  getSettings: () => ({
+    ...settings,
+    autoApplyPull: false,
+    maxPushChangesPerSync: 1
+  }),
+  updateRemoteInspection: async () => {},
+  updateLocalQueue: async () => {},
+  getLocalStore: () => pullCheckpointStore,
+  readLocalFileSnapshot: async () => undefined,
+  buildLocalPushBundle: async () => {
+    throw new Error("Checkpoint-only pull must not build a local bundle.");
+  },
+  applyPulledChanges: async () => {
+    throw new Error("Auto apply is disabled for this checkpoint check.");
+  },
+  createRemoteClient: () => ({
+    ...fakeClient,
+    async getChangesSince(since) {
+      assert.equal(since, "0");
+      return {
+        lastSeq: "server-checkpoint-after-window",
+        changes: [
+          { id: "remote-checkpoint.md", seq: "document-seq", doc: { _id: "remote-checkpoint.md", _rev: "1-a", type: "plain", path: "remote-checkpoint.md", children: [], mtime: 1, ctime: 1, size: 0 } }
+        ]
+      };
+    }
+  }),
+  log: () => {}
+});
+const pullCheckpointOutcome = await pullCheckpointEngine.sync("periodic");
+assert.equal(pullCheckpointOutcome.ok, true);
+assert.equal((await pullCheckpointStore.getSummary()).lastRemoteSeq, "server-checkpoint-after-window");
+assert.deepEqual(pullCheckpointStore.checkpoints, ["server-checkpoint-after-window"]);
+
 let offlineClientCalls = 0;
 const offlineStore = new MemoryStore([]);
 const offlineEngine = new LightweightSyncEngine({

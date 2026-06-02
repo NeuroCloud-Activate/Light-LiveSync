@@ -2079,7 +2079,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         this.statusUploadRate = "0";
         this.statusDownloadRate = "0";
         this.setStatus("Checking downloads");
-        this.logProgress("Checking for changes from other devices.", true);
+        this.logProgress(`Checking for changes from other devices from checkpoint ${formatCheckpoint(progress.since)}.`, true);
         return;
       case "pull-batch":
         this.statusUploadRate = "0";
@@ -2096,8 +2096,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         this.setStatus(progress.total > 0 ? `Down done · ${formatRate(progress.bytes, progress.startedAt)}` : "No downloads");
         this.logProgress(
           progress.total > 0
-            ? `Download step finished: ${progress.total} remote change${progress.total === 1 ? "" : "s"} cached locally (${formatBytes(progress.bytes)} received, ${formatRate(progress.bytes, progress.startedAt)}).`
-            : "Download step finished: no remote changes found.",
+            ? `Download step finished: ${progress.total} remote change${progress.total === 1 ? "" : "s"} cached locally (${formatBytes(progress.bytes)} received, ${formatRate(progress.bytes, progress.startedAt)}). Saved CouchDB checkpoint ${formatCheckpoint(progress.lastSeq)}.`
+            : `Download step finished: no remote changes found. Saved CouchDB checkpoint ${formatCheckpoint(progress.lastSeq)}.`,
           true
         );
         return;
@@ -2224,6 +2224,16 @@ function friendlySyncReason(reason: string): string {
     default:
       return reason || "Sync";
   }
+}
+
+function formatCheckpoint(value: string): string {
+  if (!value) {
+    return "0";
+  }
+  if (value.length <= 24) {
+    return value;
+  }
+  return `${value.slice(0, 12)}...${value.slice(-8)}`;
 }
 
 function formatBytes(bytes: number): string {
