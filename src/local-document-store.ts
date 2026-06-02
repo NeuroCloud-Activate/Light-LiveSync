@@ -50,6 +50,11 @@ export type PendingLocalPush = {
   lastError: string;
 };
 
+export type LocalChangeToQueue = {
+  path: string;
+  deleted: boolean;
+};
+
 export type LocalPushFingerprint = {
   path: string;
   fingerprint: string;
@@ -264,21 +269,38 @@ export class LocalDocumentStore {
   }
 
   async queueLocalChange(path: string, deleted: boolean): Promise<LocalStoreSummary> {
+    return this.queueLocalChanges([{ path, deleted }]);
+  }
+
+  async queueLocalChanges(changes: LocalChangeToQueue[]): Promise<LocalStoreSummary> {
+    const uniqueChanges = new Map<string, LocalChangeToQueue>();
+    for (const change of changes) {
+      if (change.path) {
+        uniqueChanges.set(change.path, change);
+      }
+    }
+
+    if (uniqueChanges.size === 0) {
+      return this.getSummary();
+    }
+
     const db = await this.requireDb();
     const now = Date.now();
     const transaction = db.transaction(PUSH_STORE, "readwrite");
     const done = txDone(transaction);
     const store = transaction.objectStore(PUSH_STORE);
-    const existing = await dbRequest<PendingLocalPush | undefined>(store.get(path));
-    store.put({
-      path,
-      deleted,
-      queuedAt: existing?.queuedAt ?? now,
-      updatedAt: now,
-      attempts: existing?.attempts ?? 0,
-      nextAttemptAt: 0,
-      lastError: ""
-    } satisfies PendingLocalPush);
+    for (const change of uniqueChanges.values()) {
+      const existing = await dbRequest<PendingLocalPush | undefined>(store.get(change.path));
+      store.put({
+        path: change.path,
+        deleted: change.deleted,
+        queuedAt: existing?.queuedAt ?? now,
+        updatedAt: now,
+        attempts: existing?.attempts ?? 0,
+        nextAttemptAt: 0,
+        lastError: ""
+      } satisfies PendingLocalPush);
+    }
     await done;
     return this.getSummary();
   }

@@ -95,6 +95,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     await this.loadSettings();
     await this.restorePersistentCredentials();
     await this.restoreSessionCredentials();
+    await this.markInterruptedSyncIfNeeded();
     this.configuredAtLoad = this.settings.configured;
 
     this.engine = new LightweightSyncEngine({
@@ -676,6 +677,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!(await this.ensureCredentialsUnlocked())) {
       return;
     }
+    await this.queueCurrentVaultForManualSync();
     this.scheduler.request("manual", true);
   }
 
@@ -1482,6 +1484,30 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     void this.saveRuntimeDiagnostics();
   }
 
+  private async markInterruptedSyncIfNeeded(): Promise<void> {
+    const runtime = this.settings.runtime;
+    if (runtime.lastSyncStartedAt === 0 || runtime.lastSyncFinishedAt !== 0) {
+      return;
+    }
+
+    const finishedAt = Date.now();
+    this.settings = {
+      ...this.settings,
+      runtime: {
+        ...runtime,
+        lastSyncFinishedAt: finishedAt,
+        lastSyncDurationMs: Math.max(0, finishedAt - runtime.lastSyncStartedAt),
+        lastSyncOk: false,
+        lastSyncMessage: "Previous sync was interrupted before it could finish.",
+        lastSyncError: "Previous sync was interrupted before it could finish.",
+        syncsFinished: runtime.syncsFinished + 1,
+        syncsFailed: runtime.syncsFailed + 1
+      }
+    };
+    this.log("Previous sync was interrupted before it could finish.");
+    await this.saveRuntimeDiagnostics();
+  }
+
   private recordSyncFinish(details: {
     reason: string;
     startedAt: number;
@@ -1534,6 +1560,28 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
     const store = this.getLocalStore(this.settings.couchDb.database);
     await this.updateLocalQueue(await store.queueLocalChange(path, deleted));
+  }
+
+  private async queueCurrentVaultForManualSync(): Promise<void> {
+    if (!this.settings.configured || !this.settings.couchDb.database) {
+      return;
+    }
+
+    const files = this.app.vault.getFiles();
+    if (files.length === 0) {
+      return;
+    }
+
+    this.setStatus("Scanning vault");
+    const changes = files.map((file) => ({
+      path: file.path,
+      deleted: false
+    }));
+    const store = this.getLocalStore(this.settings.couchDb.database);
+    const summary = await store.queueLocalChanges(changes);
+    await this.updateLocalQueue(summary);
+    this.log(`Manual sync queued ${changes.length} vault file${changes.length === 1 ? "" : "s"} for fingerprint-checked upload.`);
+    await this.yieldToUi();
   }
 
   private async readLocalFileSnapshot(path: string) {
@@ -1637,7 +1685,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       const seconds = trimmed.match(/(\d+)s/)?.[1];
       return seconds ? `Batch ${seconds}s` : "Batching";
     }
-    if (/sync is running|sync queued|connecting|checking|retrying|pushed|pulled|applied/i.test(trimmed)) {
+    if (/^Pushed \d+\. Pulled \d+/i.test(trimmed)) {
+      return "Synced";
+    }
+    if (/sync is running|sync queued|connecting|checking|retrying|scanning/i.test(trimmed)) {
       return "Syncing";
     }
     if (/copied|uri ready|imported|connected|updated|passed|written/i.test(trimmed)) {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.9
+
+- Makes manual sync scan and queue the current vault first, so first-time sync uploads existing vault files instead of only already-captured edit events.
+- Shows completed push/pull sync results as `Synced` in the compact status bar instead of leaving the status looking stuck on syncing.
+- Marks interrupted previous syncs on startup so stale runtime state does not look like an active sync forever.
+- Improves the add-device setup URI modal, advanced settings controls, selectable settings text, and activity log console layout.
+
 ## 0.1.8
 
 - Accepts setup URI imports pasted from full server terminal output, including surrounding quotes or prompt text.

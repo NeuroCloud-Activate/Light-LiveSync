@@ -11,6 +11,7 @@ export class GeneratedSetupUriModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
+    contentEl.addClass("light-livesync-modal");
     contentEl.createEl("h2", { text: "Add another device" });
     contentEl.createEl("p", {
       text: "Copy this encrypted setup URI to the new device. On the new device, choose Use setup URI and enter the same shared E2EE passphrase when asked."

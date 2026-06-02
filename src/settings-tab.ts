@@ -673,10 +673,18 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         });
       });
 
-    for (const entry of log.slice(0, 8)) {
-      new Setting(containerEl)
-        .setName(formatTime(entry.timestamp))
-        .setDesc(entry.message);
+    const consoleEl = containerEl.createEl("div");
+    consoleEl.addClass("light-livesync-activity-console");
+    for (const entry of [...log].reverse()) {
+      const line = consoleEl.createEl("div");
+      line.addClass("light-livesync-activity-line");
+      line.createEl("span", { text: formatTime(entry.timestamp) });
+      line.createEl("span", { text: entry.message });
+    }
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => {
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+      }, 0);
     }
   }
 

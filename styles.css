@@ -5,6 +5,8 @@
 
 .light-livesync-settings {
   max-width: 760px;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .light-livesync-settings .setting-item {
@@ -13,6 +15,27 @@
 
 .light-livesync-settings .setting-item-info {
   max-width: 620px;
+}
+
+.light-livesync-settings .setting-item-name,
+.light-livesync-settings .setting-item-description,
+.light-livesync-settings p,
+.light-livesync-modal .setting-item-name,
+.light-livesync-modal .setting-item-description,
+.light-livesync-modal p {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.light-livesync-settings .setting-item-control {
+  min-width: min(280px, 100%);
+}
+
+.light-livesync-settings .setting-item-control textarea,
+.light-livesync-settings .setting-item-control input[type="text"],
+.light-livesync-settings .setting-item-control input[type="password"],
+.light-livesync-settings .setting-item-control input[type="number"] {
+  width: min(360px, 100%);
 }
 
 .light-livesync-tabs {
@@ -71,6 +94,34 @@
 
 .light-livesync-modal textarea {
   min-height: 120px;
+}
+
+.light-livesync-activity-console {
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.45;
+  user-select: text;
+  -webkit-user-select: text;
+  white-space: pre-wrap;
+}
+
+.light-livesync-activity-line {
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) minmax(0, 1fr);
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.light-livesync-activity-line span:first-child {
+  color: var(--text-muted);
 }
 
 .light-livesync-command-modal {
