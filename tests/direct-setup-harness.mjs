@@ -83,6 +83,7 @@ assert.equal(projected.encrypt, true);
 assert.equal(projected.usePathObfuscation, true);
 assert.equal(projected.syncOnSave, true);
 assert.equal(projected.periodicSync, true);
+assert.equal(projected.periodicSyncIntervalSec, 60);
 assert.equal(projected.vaultChangeBatchWindowSec, 60);
 assert.equal(projected.maxPushChangesPerSync, 1000);
 assert.equal(projected.autoUnlockCredentials, true);

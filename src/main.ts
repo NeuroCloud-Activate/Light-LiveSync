@@ -127,6 +127,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private completedStatusTimer?: number;
   private workerScriptSourceCache?: string;
   private runtimeDiagnosticsSaveTimer?: number;
+  private lastForegroundRemoteCheckAt = 0;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -181,6 +182,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.registerProtocolHandler();
     this.registerVaultEvents();
     this.registerNetworkEvents();
+    this.registerForegroundRemoteChecks();
     this.reschedulePeriodicSync();
 
     this.app.workspace.onLayoutReady(() => {
@@ -255,6 +257,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
     if (loaded?.maxStorageApplyConcurrency === undefined || loaded.maxStorageApplyConcurrency <= 25) {
       this.settings.maxStorageApplyConcurrency = DEFAULT_SETTINGS.maxStorageApplyConcurrency;
+    }
+    if (loaded?.periodicSyncIntervalSec === undefined || loaded.periodicSyncIntervalSec >= 300) {
+      this.settings.periodicSyncIntervalSec = DEFAULT_SETTINGS.periodicSyncIntervalSec;
     }
     if (Platform.isMobile && !this.settings.couchDb.useRequestApi) {
       this.settings.couchDb.useRequestApi = true;
@@ -1445,6 +1450,40 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.register(() => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+    });
+  }
+
+  private registerForegroundRemoteChecks(): void {
+    const requestForegroundCheck = () => {
+      if (typeof document !== "undefined" && document.hidden) {
+        return;
+      }
+      if (!this.canRunAutomaticSync()) {
+        return;
+      }
+      const now = Date.now();
+      const throttleMs = Math.max(30_000, this.settings.minimumSyncIntervalMs);
+      if (now - this.lastForegroundRemoteCheckAt < throttleMs) {
+        return;
+      }
+      this.lastForegroundRemoteCheckAt = now;
+      this.logProgress("App became active; checking CouchDB for remote changes.", true);
+      this.scheduler.request("periodic", true);
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document === "undefined" || !document.hidden) {
+        requestForegroundCheck();
+      }
+    };
+    window.addEventListener("focus", requestForegroundCheck);
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+    this.register(() => {
+      window.removeEventListener("focus", requestForegroundCheck);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
     });
   }
 

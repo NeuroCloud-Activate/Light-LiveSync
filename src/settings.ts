@@ -234,7 +234,7 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
   failedPushRetryBaseSec: 60,
   failedPushRetryMaxSec: 900,
   syncFailureCooldownSec: 120,
-  periodicSyncIntervalSec: 300,
+  periodicSyncIntervalSec: 60,
   minimumSyncIntervalMs: 30000,
   maxStorageApplyConcurrency: 50,
   maxChunkFetchConcurrency: 8,

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.29
+
+- Reduces the default automatic remote check interval from five minutes to one minute so other devices pick up uploaded edits much sooner.
+- Migrates existing installs that still use the old five-minute fallback interval to the new one-minute remote check interval.
+- Adds foreground and visibility-change remote checks so mobile devices catch up when the app becomes active again.
+- Renames the advanced interval setting to clarify that it controls automatic CouchDB checks for changes from other devices.
+
 ## 0.1.28
 
 - Prefetches missing content chunks once per apply batch before reconstructing files, reducing repeated CouchDB chunk recovery on Windows.
