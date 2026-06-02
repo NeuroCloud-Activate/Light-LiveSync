@@ -3,13 +3,11 @@ import type { CredentialPayload } from "./settings";
 
 export type ServerCredentialsModalResult = {
   credentials: CredentialPayload;
-  unlockPassphrase: string;
 };
 
 export class ServerCredentialsModal extends Modal {
   private couchDbPassword = "";
   private passphrase = "";
-  private unlockPassphrase = "";
   private resolve: (value: ServerCredentialsModalResult | false) => void = () => {};
 
   constructor(app: App) {
@@ -28,7 +26,7 @@ export class ServerCredentialsModal extends Modal {
     contentEl.empty();
     contentEl.createEl("h2", { text: "Update credentials" });
     contentEl.createEl("p", {
-      text: "Update the private values used for CouchDB and encrypted vault sync. These are saved encrypted in plugin data."
+      text: "Update the private values used for CouchDB and encrypted vault sync. These are saved encrypted in plugin data and stay available on this device after setup."
     });
 
     new Setting(contentEl)
@@ -52,16 +50,6 @@ export class ServerCredentialsModal extends Modal {
       });
 
     new Setting(contentEl)
-      .setName("Credential unlock passphrase")
-      .setDesc("Optional. Leave blank to let this device unlock sync automatically on app start. Use a passphrase only if automatic credential unlock is turned off.")
-      .addText((text) => {
-        text.inputEl.type = "password";
-        text.onChange((value) => {
-          this.unlockPassphrase = value;
-        });
-      });
-
-    new Setting(contentEl)
       .addButton((button) => {
         button
           .setButtonText("Save encrypted")
@@ -71,8 +59,7 @@ export class ServerCredentialsModal extends Modal {
               credentials: {
                 couchDbPassword: this.couchDbPassword,
                 passphrase: this.passphrase
-              },
-              unlockPassphrase: this.unlockPassphrase
+              }
             });
           });
       })

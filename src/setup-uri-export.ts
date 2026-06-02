@@ -42,10 +42,10 @@ export function validateSettingsForAdditionalDeviceUri(settings: LightweightLive
     );
   }
   if (!settings.couchDb.username || !settings.couchDb.password) {
-    throw new SetupUriExportError("Unlock or update the CouchDB credentials before generating an add-device URI.");
+    throw new SetupUriExportError("Update the saved CouchDB credentials before generating an add-device URI.");
   }
   if (settings.requireE2EE && !settings.passphrase) {
-    throw new SetupUriExportError("Unlock or update the shared E2EE passphrase before generating an add-device URI.");
+    throw new SetupUriExportError("Update the saved shared E2EE passphrase before generating an add-device URI.");
   }
 }
 

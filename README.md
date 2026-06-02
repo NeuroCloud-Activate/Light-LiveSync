@@ -10,7 +10,7 @@ It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmr
 - Keeps compatibility with the familiar `obsidian://setuplivesync?settings=...` setup URI flow.
 - Requires end-to-end encryption by default.
 - Batches edits for 60 seconds by default so rapid typing does not spam the server.
-- Restores saved credentials automatically on app start so mobile sync can run without a repeated unlock prompt.
+- Restores saved credentials automatically on app start so mobile sync can resume without a repeated credential prompt.
 - Syncs vault configuration and plugin data along with notes.
 - Uses periodic sync as a fallback when mobile backgrounding or missed file events get in the way.
 - Automatically merges ordinary text edits and keeps recovery backups.
@@ -67,6 +67,14 @@ For the first device:
 4. Let the plugin verify the connection.
 5. The plugin creates or verifies the database, prepares sync parameters, and requires E2EE before syncing.
 
+If in-plugin database creation is blocked by CouchDB permissions, CORS, local network rules, or a reverse proxy, use **Copy setup command** in the setup screen. It copies a Deno command that runs this repo's hosted helper script:
+
+```sh
+deno run -A https://raw.githubusercontent.com/NeuroCloud-Activate/Light-LiveSync/main/utils/couchdb_setupuri.ts
+```
+
+The copied command fills in `hostname`, `database`, `username`, and any available saved password. Passphrase placeholders are left for you to fill before running it. The helper creates or verifies the database, prepares LiveSync sync parameters, attempts to restrict database access to the named CouchDB user, and prints a setup URI that can be pasted back into **Use setup URI**.
+
 For another device:
 
 1. On the original device, open Light-LiveSync settings.
@@ -91,7 +99,7 @@ Security is a core part of the design, not an advanced mode.
 
 - E2EE is required by default.
 - Raw CouchDB passwords and raw E2EE passphrases are blanked before settings are saved.
-- Saved credentials are stored in an encrypted local credential store and can unlock automatically on the same device.
+- Saved credentials are stored in an encrypted local credential store and stay available on the same device after setup, relying on the device itself for access protection.
 - Synced note content is encrypted before it reaches CouchDB.
 - Path obfuscation is enabled by default.
 - Add-device setup URIs are encrypted and should be treated like temporary invite codes.
@@ -168,4 +176,4 @@ Release files are:
 
 The plugin is built to load on Obsidian desktop and mobile, but real mobile sync should still be tested on a real iOS or Android device before you rely on it everywhere.
 
-For a practical mobile check, install the release build on the device, import the setup URI, create and edit a few notes, sync in both directions, close and reopen the app, and confirm sync resumes without a repeated unlock prompt. Record only non-secret observations: device type, Obsidian version, plugin version, connection type, sync result, and whether queues returned to zero.
+For a practical mobile check, install the release build on the device, import the setup URI, create and edit a few notes, sync in both directions, close and reopen the app, and confirm sync resumes without a repeated credential prompt. Record only non-secret observations: device type, Obsidian version, plugin version, connection type, sync result, and whether queues returned to zero.

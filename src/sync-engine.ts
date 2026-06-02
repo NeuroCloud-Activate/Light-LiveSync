@@ -134,10 +134,10 @@ export class LightweightSyncEngine {
       };
     }
     if (credentialsAreLocked(settings)) {
-      return { ok: false, message: "Credentials are locked. Use the unlock command before syncing." };
+      return { ok: false, message: "Saved credentials could not be opened automatically. Update saved credentials once before syncing." };
     }
     if (settings.requireE2EE && (!settings.encrypt || !settings.passphrase)) {
-      return { ok: false, message: "E2EE is required. Unlock or import the vault E2EE passphrase before syncing." };
+      return { ok: false, message: "E2EE is required. Update saved credentials or import the vault E2EE passphrase before syncing." };
     }
 
     const client = this.createRemoteClient(settings);
@@ -225,10 +225,10 @@ export class LightweightSyncEngine {
       return { ok: false, message: "Light-LiveSync is not configured." };
     }
     if (credentialsAreLocked(settings)) {
-      return { ok: false, message: "Credentials are locked. Use the unlock command before syncing." };
+      return { ok: false, message: "Saved credentials could not be opened automatically. Update saved credentials once before syncing." };
     }
     if (settings.requireE2EE && (!settings.encrypt || !settings.passphrase)) {
-      return { ok: false, message: "E2EE is required. Unlock or import the vault E2EE passphrase before syncing." };
+      return { ok: false, message: "E2EE is required. Update saved credentials or import the vault E2EE passphrase before syncing." };
     }
     return { ok: true, settings };
   }

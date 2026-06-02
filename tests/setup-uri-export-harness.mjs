@@ -67,7 +67,7 @@ assert.throws(
     ...runtimeSettings,
     couchDb: { ...runtimeSettings.couchDb, password: "" }
   }),
-  /Unlock or update/
+  /Update the saved CouchDB credentials/
 );
 
 console.log(JSON.stringify({

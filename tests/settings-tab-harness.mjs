@@ -52,7 +52,7 @@ function render(settingsPatch) {
     promptForDirectSetup() {},
     promptForSetupUri() {},
     generateSetupUriForAdditionalDevice() {},
-    unlockCredentials() {},
+    copyCouchDbSetupCommandFromSettings() {},
     promptForServerCredentials() {},
     initializeRemoteSyncParameters() {},
     verifyConnectionNow() {},
@@ -88,10 +88,15 @@ assert.match(unconfigured, /Connect CouchDB/);
 assert.match(unconfigured, /A low-noise vault sync setup/);
 assert.match(unconfigured, /Sync activity/);
 assert.match(unconfigured, /Advanced/);
+assert.doesNotMatch(unconfigured, /View/);
+assert.doesNotMatch(unconfigured, /current/);
 assert.match(unconfigured, /Connection check/);
 assert.match(unconfigured, /without syncing vault files/);
 assert.match(unconfigured, /Add another device/);
 assert.match(unconfigured, /Generate URI/);
+assert.match(unconfigured, /Create database from terminal/);
+assert.match(unconfigured, /Copy setup command/);
+assert.match(unconfigured, /passphrases are not saved unless setup succeeds/);
 assert.doesNotMatch(unconfigured, /Runtime check/);
 assert.doesNotMatch(unconfigured, /Run check/);
 assert.doesNotMatch(unconfigured, /Check device APIs/);
@@ -111,8 +116,9 @@ const locked = render({
   credentialStore: { version: 1 },
   passphrase: ""
 });
-assert.match(locked, /Unlock to sync/);
+assert.match(locked, /Refresh saved credentials/);
 assert.match(locked, /Update saved credentials/);
+assert.doesNotMatch(locked, /Unlock/);
 
 const firstRun = render({
   configured: true,
@@ -228,7 +234,13 @@ const activity = render({
   }
 });
 assert.match(activity, /Sync activity/);
-assert.match(activity, /Remote database/);
+assert.match(activity, /CouchDB connection/);
+assert.match(activity, /Server address/);
+assert.match(activity, /http:\/\/example.com:5984/);
+assert.match(activity, /Username/);
+assert.match(activity, /user/);
+assert.match(activity, /Database name/);
+assert.match(activity, /vault/);
 assert.match(activity, /Last sync workload/);
 assert.match(activity, /Uploaded 1 file \(191 B read locally, 1 chunk doc built\)/);
 assert.doesNotMatch(activity, /Advanced sync tuning/);
@@ -245,7 +257,6 @@ const advanced = render({
   passphrase: "secret"
 });
 assert.match(advanced, /Advanced sync tuning/);
-assert.match(advanced, /Unlock automatically on this device/);
 assert.match(advanced, /Sync failure cooldown/);
 assert.match(advanced, /Manual Sync now can still run immediately/);
 assert.match(advanced, /Custom request headers/);

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { decryptCredentialPayload, encryptCredentialPayload } from "../src/credential-store.ts";
 import {
+  COUCHDB_SETUP_SCRIPT_URL,
   DIRECT_SETUP_FIELD_DESCRIPTIONS,
+  buildCouchDbSetupCommand,
   directCouchDbSetupInputFromValueSources,
   settingsFromDirectCouchDbSetup,
   validateDirectCouchDbSetupInput
@@ -47,6 +49,20 @@ const disk = settingsForDisk({
   credentialStore
 });
 const unlocked = await decryptCredentialPayload(credentialStore, "vault-secret");
+const setupCommand = buildCouchDbSetupCommand({
+  hostname: "203.0.113.10:5984",
+  database: "CommandDB",
+  passphrase: "",
+  username: "command-user",
+  password: ""
+});
+const quotedSetupCommand = buildCouchDbSetupCommand({
+  hostname: "https://sync.example.com",
+  database: "QuoteDB",
+  passphrase: "vault's secret",
+  username: "quote-user",
+  password: "pass'word"
+});
 
 assert.equal(fromElements.hostname, "LiveHost.EXAMPLE:5984");
 assert.equal(fromElements.database, "ModalDB");
@@ -79,6 +95,14 @@ assert.equal(unlocked.passphrase, "vault-secret");
 assert.ok(DIRECT_SETUP_FIELD_DESCRIPTIONS.hostname.description.includes("CouchDB server"));
 assert.ok(DIRECT_SETUP_FIELD_DESCRIPTIONS.passphrase.description.includes("E2EE"));
 assert.ok(DIRECT_SETUP_FIELD_DESCRIPTIONS.username.description.includes("restricts access"));
+assert.match(setupCommand, new RegExp(COUCHDB_SETUP_SCRIPT_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+assert.match(setupCommand, /export hostname='http:\/\/203\.0\.113\.10:5984'/);
+assert.match(setupCommand, /export database='commanddb'/);
+assert.match(setupCommand, /export username='command-user'/);
+assert.match(setupCommand, /export passphrase='PASTE_SHARED_E2EE_PASSPHRASE'/);
+assert.match(setupCommand, /export password='PASTE_COUCHDB_PASSWORD'/);
+assert.match(quotedSetupCommand, /export passphrase='vault'\\''s secret'/);
+assert.match(quotedSetupCommand, /export password='pass'\\''word'/);
 
 console.log(JSON.stringify({
   ok: true,
@@ -90,5 +114,6 @@ console.log(JSON.stringify({
   encryptedCredentialStore: !!disk.credentialStore,
   diskSecretsBlanked: disk.couchDb.password === "" && disk.passphrase === "",
   readsSubmittedInputValues: fromElements.hostname === "LiveHost.EXAMPLE:5984",
+  helperScriptUrl: COUCHDB_SETUP_SCRIPT_URL,
   describedFields: Object.keys(DIRECT_SETUP_FIELD_DESCRIPTIONS)
 }, null, 2));

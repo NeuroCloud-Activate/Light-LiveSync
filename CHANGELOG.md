@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+
+- Adds a repo-hosted CouchDB setup helper that can create or verify the database, prepare sync parameters, and print a setup URI.
+- Adds a copyable setup command inside the plugin for recovery when in-app database creation is blocked.
+- Saves direct-setup host, database, username, and encrypted CouchDB password after setup errors while keeping passphrases unsaved until setup succeeds.
+- Replaces the settings view row with top tabs.
+- Removes the visible manual unlock flow from normal use; saved credentials restore automatically on the same device after setup.
+- Adds a CouchDB connection summary to the Sync activity tab.
+
 ## 0.1.3
 
 - Updates the public plugin description and author metadata.

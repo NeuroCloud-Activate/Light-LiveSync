@@ -32,11 +32,11 @@ export function buildRuntimeSmokeCheckReport(input: RuntimeSmokeCheckInput): Run
       ? "Device role: additional device; connection checks verify the existing remote only."
       : "Device role: initial device; connection checks may create or initialize the remote.",
     settings.autoUnlockCredentials
-      ? "Automatic device unlock is enabled for app-start sync."
-      : "Automatic device unlock is disabled; sync waits for manual credential unlock after app start.",
+      ? "Device credential restore is enabled for app-start sync."
+      : "Device credential restore is disabled; update saved credentials to refresh app-start sync.",
     settings.keepUnlockedDuringSession
-      ? "Session unlock cache is enabled for renderer-refresh recovery."
-      : "Session unlock cache is disabled; unlock is memory-only.",
+      ? "Session credential cache is enabled for renderer-refresh recovery."
+      : "Session credential cache is disabled; credentials are memory-only.",
     settings.autoApplyPull ? "Automatic remote apply is enabled." : "Automatic remote apply is disabled.",
     settings.conflictFolder
       ? "Recovery backups use a custom conflict folder."
@@ -56,10 +56,10 @@ export function buildRuntimeSmokeCheckReport(input: RuntimeSmokeCheckInput): Run
     issues.push("CouchDB setup is missing");
   }
   if (credentialsAreLocked(settings)) {
-    issues.push("credentials are locked");
+    issues.push("saved credentials could not be opened");
   }
   if (settings.requireE2EE && !settings.passphrase) {
-    issues.push("E2EE passphrase is not unlocked");
+    issues.push("E2EE passphrase is not available");
   }
   if (!settings.autoApplyPull) {
     issues.push("automatic remote apply is disabled");

@@ -45,6 +45,14 @@ export const DIRECT_SETUP_FIELD_DESCRIPTIONS: Record<DirectCouchDbSetupField, Di
   }
 };
 
+export const COUCHDB_SETUP_SCRIPT_URL =
+  "https://raw.githubusercontent.com/NeuroCloud-Activate/Light-LiveSync/main/utils/couchdb_setupuri.ts";
+
+const SECRET_PLACEHOLDERS: Record<"passphrase" | "password", string> = {
+  passphrase: "PASTE_SHARED_E2EE_PASSPHRASE",
+  password: "PASTE_COUCHDB_PASSWORD"
+};
+
 export function normaliseDirectCouchDbSetupInput(input: DirectCouchDbSetupInput): DirectCouchDbSetupInput {
   return {
     hostname: normaliseCouchDbUri(input.hostname),
@@ -109,4 +117,26 @@ export function settingsFromDirectCouchDbSetup(input: DirectCouchDbSetupInput): 
     syncOnSave: true,
     periodicSync: true
   };
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+export function buildCouchDbSetupCommand(input: DirectCouchDbSetupInput): string {
+  const normalised = normaliseDirectCouchDbSetupInput(input);
+  const commandInput: DirectCouchDbSetupInput = {
+    ...normalised,
+    passphrase: normalised.passphrase || SECRET_PLACEHOLDERS.passphrase,
+    password: normalised.password || SECRET_PLACEHOLDERS.password
+  };
+
+  return [
+    `export hostname=${shellQuote(commandInput.hostname)}`,
+    `export database=${shellQuote(commandInput.database)}`,
+    `export passphrase=${shellQuote(commandInput.passphrase)}`,
+    `export username=${shellQuote(commandInput.username)}`,
+    `export password=${shellQuote(commandInput.password)}`,
+    `deno run -A ${COUCHDB_SETUP_SCRIPT_URL}`
+  ].join("\n");
 }

@@ -93,20 +93,36 @@ export class Setting {
   }
 }
 
-function createContainer(tag = "div") {
+function createContainer(tag = "div", parent = undefined) {
   return {
     tag,
+    parent,
     textContent: "",
     children: [],
+    classes: [],
+    attrs: {},
+    onclick: undefined,
     empty() {
       this.textContent = "";
       this.children = [];
     },
+    addClass(name) {
+      this.classes.push(name);
+    },
+    removeClass(name) {
+      this.classes = this.classes.filter((current) => current !== name);
+    },
+    setAttr(name, value) {
+      this.attrs[name] = value;
+    },
+    appendText(value) {
+      this.textContent += ` ${value}`;
+      this.parent?.appendText(value);
+    },
     createEl(childTag, options = {}) {
-      const child = createContainer(childTag);
+      const child = createContainer(childTag, this);
       if (typeof options.text === "string") {
-        child.textContent = options.text;
-        this.textContent += ` ${options.text}`;
+        child.appendText(options.text);
       }
       this.children.push(child);
       return child;

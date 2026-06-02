@@ -1,6 +1,7 @@
-import { App, Modal, Setting } from "obsidian";
+import { App, Modal, Notice, Setting } from "obsidian";
 import {
   DIRECT_SETUP_FIELD_DESCRIPTIONS,
+  buildCouchDbSetupCommand,
   directCouchDbSetupInputFromValueSources,
   normaliseDirectCouchDbSetupInput,
   type DirectCouchDbSetupInput,
@@ -18,8 +19,13 @@ export class DirectCouchDbSetupModal extends Modal {
   private inputElements: DirectCouchDbSetupValueSources = {};
   private resolve: (value: DirectCouchDbSetupInput | false) => void = () => {};
 
-  constructor(app: App) {
+  constructor(app: App, initial: Partial<DirectCouchDbSetupInput> = {}) {
     super(app);
+    this.input = {
+      ...this.input,
+      ...initial,
+      passphrase: initial.passphrase ?? ""
+    };
   }
 
   openAndWait(): Promise<DirectCouchDbSetupInput | false> {
@@ -36,6 +42,9 @@ export class DirectCouchDbSetupModal extends Modal {
     contentEl.createEl("p", {
       text: "Enter the same values used by the setup URI generator. The plugin will verify the credentials by opening or creating the database, restrict database access to this CouchDB user, initialise LiveSync sync parameters, and require E2EE before syncing."
     });
+    contentEl.createEl("p", {
+      text: "If CouchDB blocks in-app database creation, copy the setup command and run it from a computer that can reach your CouchDB server. It creates or verifies the database, prepares sync parameters, then prints a setup URI that can be pasted back here."
+    });
 
     this.addTextField("hostname", "192.0.2.10:5984");
     this.addTextField("database", "my_vault");
@@ -51,6 +60,11 @@ export class DirectCouchDbSetupModal extends Modal {
           .onClick(() => {
             this.closeWith(normaliseDirectCouchDbSetupInput(this.currentInput()));
           });
+      })
+      .addButton((button) => {
+        button.setButtonText("Copy setup command").onClick(() => {
+          void this.copySetupCommand();
+        });
       })
       .addButton((button) => {
         button.setButtonText("Cancel").onClick(() => this.closeWith(false));
@@ -72,6 +86,7 @@ export class DirectCouchDbSetupModal extends Modal {
         }
         this.inputElements[field] = text.inputEl;
         text.setPlaceholder(placeholder);
+        text.setValue(this.input[field]);
         text.onChange((value) => {
           this.input = {
             ...this.input,
@@ -88,5 +103,11 @@ export class DirectCouchDbSetupModal extends Modal {
   private closeWith(result: DirectCouchDbSetupInput | false): void {
     this.resolve(result);
     this.close();
+  }
+
+  private async copySetupCommand(): Promise<void> {
+    const command = buildCouchDbSetupCommand(this.currentInput());
+    await navigator.clipboard.writeText(command);
+    new Notice("CouchDB setup command copied.");
   }
 }

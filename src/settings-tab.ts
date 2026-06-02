@@ -42,29 +42,28 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
 
   private renderTabs(containerEl: SettingsContainer): void {
     const active = this.activeTab();
-    new Setting(containerEl)
-      .setName("View")
-      .addButton((button) => {
-        button.setButtonText(active === "sync" ? "Sync current" : "Sync").onClick(async () => {
-          this.plugin.settings.settingsTab = "sync";
-          await this.plugin.saveSettingsAndReschedule();
-          this.display();
-        });
-      })
-      .addButton((button) => {
-        button.setButtonText(active === "activity" ? "Sync activity current" : "Sync activity").onClick(async () => {
-          this.plugin.settings.settingsTab = "activity";
-          await this.plugin.saveSettingsAndReschedule();
-          this.display();
-        });
-      })
-      .addButton((button) => {
-        button.setButtonText(active === "advanced" ? "Advanced current" : "Advanced").onClick(async () => {
-          this.plugin.settings.settingsTab = "advanced";
-          await this.plugin.saveSettingsAndReschedule();
-          this.display();
-        });
-      });
+    const tabs = containerEl.createEl("div");
+    tabs.addClass("light-livesync-tabs");
+    const tabSpecs: { id: SettingsTabId; label: string }[] = [
+      { id: "sync", label: "Sync" },
+      { id: "activity", label: "Sync activity" },
+      { id: "advanced", label: "Advanced" }
+    ];
+
+    for (const tabSpec of tabSpecs) {
+      const tab = tabs.createEl("button", { text: tabSpec.label });
+      tab.addClass("light-livesync-tab");
+      tab.setAttr("type", "button");
+      tab.setAttr("aria-pressed", String(active === tabSpec.id));
+      if (active === tabSpec.id) {
+        tab.addClass("is-active");
+      }
+      tab.onclick = async () => {
+        this.plugin.settings.settingsTab = tabSpec.id;
+        await this.plugin.saveSettingsAndReschedule();
+        this.display();
+      };
+    }
   }
 
   private renderSyncTab(containerEl: SettingsContainer): void {
@@ -121,16 +120,10 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
 
     if (credentialsAreLocked(this.plugin.getRuntimeSettings())) {
       new Setting(containerEl)
-        .setName("Unlock to sync")
-        .setDesc("Saved credentials could not be unlocked automatically on this device. Unlock once or update the saved credentials.")
+        .setName("Refresh saved credentials")
+        .setDesc("Saved credentials could not be opened automatically on this device. Update them once so sync can continue without a recurring prompt.")
         .addButton((button) => {
-          button.setButtonText("Unlock").setCta().onClick(async () => {
-            await this.plugin.unlockCredentials();
-            this.display();
-          });
-        })
-        .addButton((button) => {
-          button.setButtonText("Update saved credentials").onClick(async () => {
+          button.setButtonText("Update saved credentials").setCta().onClick(async () => {
             await this.plugin.promptForServerCredentials();
             this.display();
           });
@@ -283,14 +276,18 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Stored credentials")
-      .setDesc(this.credentialsDescription())
+      .setName("Create database from terminal")
+      .setDesc("If in-app setup cannot create the CouchDB database, copy this Deno command, run it on a computer that can reach your CouchDB server, then paste the printed setup URI back into Use setup URI. Host, database, and username stay saved after setup errors; passphrases are not saved unless setup succeeds.")
       .addButton((button) => {
-        button.setButtonText("Unlock").onClick(async () => {
-          await this.plugin.unlockCredentials();
+        button.setButtonText("Copy setup command").onClick(async () => {
+          await this.plugin.copyCouchDbSetupCommandFromSettings();
           this.display();
         });
-      })
+      });
+
+    new Setting(containerEl)
+      .setName("Saved credentials")
+      .setDesc(this.credentialsDescription())
       .addButton((button) => {
         button.setButtonText("Update").onClick(async () => {
           await this.plugin.promptForServerCredentials();
@@ -304,10 +301,8 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       return "No encrypted server password or vault passphrase is saved yet. Add them during setup or with Update.";
     }
     return credentialsAreLocked(this.plugin.getRuntimeSettings())
-      ? "Saved encrypted, but not unlocked. Automatic unlock can be refreshed by updating the saved credentials."
-      : this.plugin.settings.autoUnlockCredentials
-        ? "Saved encrypted and set to unlock automatically on this device when the app starts."
-        : "Saved encrypted and unlocked only after manual entry on this device.";
+      ? "Saved encrypted, but this device could not open them automatically. Update them once to refresh this device."
+      : "Saved encrypted and available on this device for background sync after app start.";
   }
 
   private renderAutomaticSyncSummary(containerEl: SettingsContainer): void {
@@ -422,16 +417,6 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.section(containerEl, "Advanced security");
 
     new Setting(containerEl)
-      .setName("Unlock automatically on this device")
-      .setDesc("Recommended for phones and tablets. The server password and vault passphrase stay encrypted in plugin data, and this device keeps a local unlock key so background sync can start after app launch.")
-      .addToggle((toggle) => {
-        toggle.setValue(this.plugin.settings.autoUnlockCredentials).onChange(async (value) => {
-          await this.plugin.setAutoUnlockCredentials(value);
-          this.display();
-        });
-      });
-
-    new Setting(containerEl)
       .setName("Require E2EE")
       .setDesc("Recommended. Sync will not send or apply vault content unless the shared encryption passphrase is available.")
       .addToggle((toggle) => {
@@ -456,16 +441,6 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
             this.plugin.settings.encrypt = this.plugin.settings.requireE2EE ? true : value;
             await this.plugin.saveSettingsAndReschedule();
           });
-      });
-
-    new Setting(containerEl)
-      .setName("Keep unlocked during this session")
-      .setDesc("Keeps a temporary session token after credentials are unlocked, which helps renderer refreshes continue syncing without another prompt.")
-      .addToggle((toggle) => {
-        toggle.setValue(this.plugin.settings.keepUnlockedDuringSession).onChange(async (value) => {
-          await this.plugin.setKeepUnlockedDuringSession(value);
-          this.display();
-        });
       });
   }
 
@@ -591,7 +566,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Sync activity")
       .setDesc(this.statusSummary());
-    new Setting(containerEl).setName("Remote database").setDesc(this.plugin.settings.couchDb.database || "Not configured yet");
+    this.renderConnectionSummary(containerEl);
     this.renderRemoteStatus(containerEl);
     this.renderRuntimeStatus(containerEl);
     this.renderSyncMetricsStatus(containerEl);
@@ -609,7 +584,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       return "Not connected yet. Use Connect CouchDB or Use setup URI above.";
     }
     if (credentialsAreLocked(settings)) {
-      return "Credentials are saved but could not be unlocked automatically on this device.";
+      return "Credentials are saved but this device could not open them automatically. Update saved credentials once to refresh sync.";
     }
     if (runtime.lastSyncStartedAt > 0 && runtime.lastSyncFinishedAt === 0) {
       return "Sync is running in the background.";
@@ -624,6 +599,20 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       return "Ready to check the server. Run one sync to verify this device.";
     }
     return "Quiet. No action needed.";
+  }
+
+  private renderConnectionSummary(containerEl: SettingsContainer): void {
+    this.section(containerEl, "CouchDB connection");
+    const couchDb = this.plugin.settings.couchDb;
+    new Setting(containerEl)
+      .setName("Server address")
+      .setDesc(couchDb.uri || "Not configured yet");
+    new Setting(containerEl)
+      .setName("Username")
+      .setDesc(couchDb.username || "Not configured yet");
+    new Setting(containerEl)
+      .setName("Database name")
+      .setDesc(couchDb.database || "Not configured yet");
   }
 
   private renderRemoteStatus(containerEl: SettingsContainer): void {
@@ -717,7 +706,7 @@ function friendlyError(message: string): string {
     return "This vault is not connected yet. Use Connect CouchDB or Use setup URI to start syncing.";
   }
   if (/Credentials are locked/i.test(message)) {
-    return "Credentials are locked. Unlock them once for this Obsidian session.";
+    return "Saved credentials could not be opened automatically. Update saved credentials once to refresh this device.";
   }
   if (/Could not reach CouchDB|ERR_ADDRESS_UNREACHABLE|ERR_CONNECTION_REFUSED|ERR_NETWORK_ACCESS_DENIED/i.test(message)) {
     return "CouchDB could not be reached. Check local-network permission, Wi-Fi/VPN, firewall rules, and that the server is awake.";

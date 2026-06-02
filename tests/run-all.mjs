@@ -16,6 +16,7 @@ const tsHarnesses = [
   "scheduler-harness.mjs",
   "session-credential-cache-harness.mjs",
   "settings-tab-harness.mjs",
+  "setup-helper-script-harness.mjs",
   "setup-qr-harness.mjs",
   "setup-uri-export-harness.mjs",
   "status-presenter-harness.mjs",

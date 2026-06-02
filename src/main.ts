@@ -6,7 +6,12 @@ import { exportReadyPreviews } from "./preview-exporter";
 import { ServerCredentialsModal } from "./server-credentials-modal";
 import { applyReadyPreviewsToStaging, type StagingApplyResult } from "./staging-applier";
 import { DirectCouchDbSetupModal } from "./direct-setup-modal";
-import { settingsFromDirectCouchDbSetup, type DirectCouchDbSetupInput } from "./direct-setup";
+import {
+  buildCouchDbSetupCommand,
+  normaliseDirectCouchDbSetupInput,
+  settingsFromDirectCouchDbSetup,
+  type DirectCouchDbSetupInput
+} from "./direct-setup";
 import { decodeSettingsFromSetupUri } from "./setup-uri";
 import { generateAdditionalDeviceSetupUri } from "./setup-uri-export";
 import { decodeSettingsFromSetupQr } from "./setup-qr";
@@ -46,7 +51,6 @@ import {
   formatRuntimeEvidenceReport,
   runtimeEvidenceReportPath
 } from "./runtime-evidence-report";
-import { UnlockCredentialsModal } from "./unlock-modal";
 import {
   clearSessionCredentialReloadProof,
   clearSessionCredentialPayload,
@@ -197,8 +201,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       },
       upstreamSettings: loaded?.upstreamSettings ?? DEFAULT_SETTINGS.upstreamSettings,
       credentialStore: loaded?.credentialStore ?? null,
-      autoUnlockCredentials: loaded?.autoUnlockCredentials ?? DEFAULT_SETTINGS.autoUnlockCredentials,
+      autoUnlockCredentials: true,
       credentialUnlockKey: loaded?.credentialUnlockKey ?? DEFAULT_SETTINGS.credentialUnlockKey,
+      keepUnlockedDuringSession: true,
       settingsTab: loaded?.settingsTab ?? DEFAULT_SETTINGS.settingsTab
     };
     if (loaded?.maxPushChangesPerSync === undefined || loaded.maxPushChangesPerSync <= 4) {
@@ -259,28 +264,30 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.log("Credentials restored for this Obsidian session.");
   }
 
-  private async restorePersistentCredentials(): Promise<void> {
+  private async restorePersistentCredentials(): Promise<boolean> {
     if (
       !this.settings.autoUnlockCredentials ||
       !this.settings.credentialStore ||
       !this.settings.credentialUnlockKey ||
       !hasUsableRemote(this.settings)
     ) {
-      return;
+      return false;
     }
 
     try {
       const payload = await decryptCredentialPayload(this.settings.credentialStore, this.settings.credentialUnlockKey);
       if (!hasCredentialPayload(payload)) {
-        return;
+        return false;
       }
       this.sessionCredentials = payload;
       this.settings = applyCredentialPayload(this.settings, payload);
       await this.refreshAutoUnlockStore(payload);
       this.log("Credentials restored automatically from this device.");
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`Automatic credential restore failed: ${message}`);
+      return false;
     }
   }
 
@@ -379,11 +386,38 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   async promptForDirectSetup(): Promise<void> {
-    const result = await new DirectCouchDbSetupModal(this.app).openAndWait();
+    const runtimeSettings = this.getRuntimeSettings();
+    const result = await new DirectCouchDbSetupModal(this.app, {
+      hostname: this.settings.couchDb.uri,
+      database: this.settings.couchDb.database,
+      username: this.settings.couchDb.username,
+      password: runtimeSettings.couchDb.password,
+      passphrase: ""
+    }).openAndWait();
     if (!result) {
       return;
     }
     await this.configureDirectCouchDb(result);
+  }
+
+  async copyCouchDbSetupCommandFromSettings(): Promise<void> {
+    try {
+      const runtimeSettings = this.getRuntimeSettings();
+      const command = buildCouchDbSetupCommand({
+        hostname: this.settings.couchDb.uri,
+        database: this.settings.couchDb.database,
+        username: this.settings.couchDb.username,
+        password: runtimeSettings.couchDb.password,
+        passphrase: runtimeSettings.passphrase
+      });
+      await navigator.clipboard.writeText(command);
+      this.setStatus("CouchDB setup command copied");
+      new Notice("CouchDB setup command copied. Fill any placeholder secrets before running it.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Could not copy CouchDB setup command: ${message}`);
+      new Notice(`Could not copy CouchDB setup command: ${message}`);
+    }
   }
 
   async generateSetupUriForAdditionalDevice(): Promise<void> {
@@ -403,6 +437,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   async configureDirectCouchDb(input: DirectCouchDbSetupInput): Promise<void> {
     try {
+      await this.saveDirectSetupDraft(input);
       const nextSettings = settingsFromDirectCouchDbSetup(input);
       this.setStatus("Connecting CouchDB");
 
@@ -426,6 +461,34 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       this.log(`Direct CouchDB setup failed: ${message}`);
       new Notice(`Direct CouchDB setup failed: ${message}`);
     }
+  }
+
+  private async saveDirectSetupDraft(input: DirectCouchDbSetupInput): Promise<void> {
+    const normalised = normaliseDirectCouchDbSetupInput(input);
+    this.settings = {
+      ...this.settings,
+      configured: false,
+      deviceSetupRole: "initial-device",
+      couchDb: {
+        ...this.settings.couchDb,
+        uri: normalised.hostname,
+        database: normalised.database,
+        username: normalised.username,
+        password: normalised.password
+      },
+      passphrase: ""
+    };
+
+    if (normalised.password) {
+      const draftCredentials: CredentialPayload = {
+        couchDbPassword: normalised.password,
+        passphrase: ""
+      };
+      this.sessionCredentials = draftCredentials;
+      this.settings.credentialStore = await this.encryptCredentialPayloadForSettings(this.settings, draftCredentials);
+    }
+
+    await this.saveSettingsAndReschedule();
   }
 
   private async verifyDirectSetupWithTransportFallback(settings: LightweightLiveSyncSettings) {
@@ -539,12 +602,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       },
       { id: "check-couchdb-connection", name: "Check CouchDB connection", callback: () => void this.verifyConnectionNow() },
       { id: "write-runtime-evidence-report", name: "Write runtime evidence report", callback: () => void this.writeRuntimeEvidenceReport() },
-      { id: "run-session-cache-self-check", name: "Run session unlock cache self-check", callback: () => void this.runSessionCredentialCacheSelfCheck() },
-      { id: "prepare-session-cache-reload-check", name: "Prepare session unlock cache reload check", callback: () => void this.prepareSessionCredentialCacheReloadCheck() },
-      { id: "finish-session-cache-reload-check", name: "Finish session unlock cache reload check", callback: () => void this.finishSessionCredentialCacheReloadCheck() },
+      { id: "run-session-cache-self-check", name: "Run session credential cache self-check", callback: () => void this.runSessionCredentialCacheSelfCheck() },
+      { id: "prepare-session-cache-reload-check", name: "Prepare session credential cache reload check", callback: () => void this.prepareSessionCredentialCacheReloadCheck() },
+      { id: "finish-session-cache-reload-check", name: "Finish session credential cache reload check", callback: () => void this.finishSessionCredentialCacheReloadCheck() },
       { id: "prepare-real-session-cache-reload-check", name: "Prepare real credential reload check", callback: () => void this.prepareRealSessionCredentialReloadCheck() },
       { id: "finish-real-session-cache-reload-check", name: "Finish real credential reload check", callback: () => void this.finishRealSessionCredentialReloadCheck() },
-      { id: "unlock-credentials", name: "Unlock credentials", callback: () => void this.unlockCredentials() },
       { id: "update-credentials", name: "Update credentials", callback: () => void this.promptForServerCredentials() },
       { id: "preview-queued-pull", name: "Preview queued pull", callback: () => void this.previewQueuedPull() },
       { id: "export-pull-preview", name: "Export pull preview", callback: () => void this.exportPullPreview() },
@@ -564,34 +626,22 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
 
     if (!credentialsAreLocked(this.getRuntimeSettings())) {
-      new Notice("Credentials are already unlocked for this session.");
+      new Notice("Credentials are ready on this device.");
       return true;
     }
 
-    const passphrase = await new UnlockCredentialsModal(this.app).openAndWait();
-    if (!passphrase) {
-      return false;
-    }
-
-    try {
-      const payload = await decryptCredentialPayload(this.settings.credentialStore, passphrase);
-      this.sessionCredentials = payload;
-      this.settings = applyCredentialPayload(this.settings, payload);
-      await this.refreshAutoUnlockStore(payload);
-      await this.rememberSessionCredentials(payload);
-      await this.saveSettingsAndReschedule();
-      this.setStatus("Credentials unlocked");
-      new Notice("Light-LiveSync credentials unlocked.");
+    if (await this.restorePersistentCredentials()) {
+      await this.rememberSessionCredentials(this.sessionCredentials as CredentialPayload);
+      this.setStatus("Credentials ready");
+      new Notice("Light-LiveSync credentials are ready on this device.");
       if (this.settings.localQueue.pendingPush > 0) {
         this.scheduler.request("vault-change");
       }
       return true;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.log(`Credential unlock failed: ${message}`);
-      new Notice("Credential unlock failed. Check the local credential passphrase and try again.");
-      return false;
     }
+
+    new Notice("Saved credentials could not be opened automatically. Update saved credentials once to refresh this device.");
+    return false;
   }
 
   async promptForServerCredentials(): Promise<void> {
@@ -599,14 +649,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!result) {
       return;
     }
-    if (!this.settings.autoUnlockCredentials && !result.unlockPassphrase) {
-      new Notice("A credential unlock passphrase is required so saved secrets stay encrypted on this device.");
-      return;
-    }
-
+    this.settings.autoUnlockCredentials = true;
+    this.settings.keepUnlockedDuringSession = true;
     this.settings = applyCredentialPayload(this.settings, result.credentials);
     this.sessionCredentials = result.credentials;
-    this.settings.credentialStore = await this.encryptCredentialPayloadForSettings(this.settings, result.credentials, result.unlockPassphrase);
+    this.settings.credentialStore = await this.encryptCredentialPayloadForSettings(this.settings, result.credentials);
     this.settings.configured = !!this.settings.couchDb.uri && !!this.settings.couchDb.database;
     await this.rememberSessionCredentials(result.credentials);
     await this.saveSettingsAndReschedule();
@@ -819,28 +866,28 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         restored?.couchDbPassword !== payload.couchDbPassword ||
         restored.passphrase !== payload.passphrase
       ) {
-        throw new Error("The session unlock token did not restore correctly.");
+        throw new Error("The session credential token did not restore correctly.");
       }
 
       const wrongScope = await loadSessionCredentialPayload({ ...scope, database: "wrong-database" });
       if (wrongScope) {
-        throw new Error("The session unlock token was accepted for the wrong database scope.");
+        throw new Error("The session credential token was accepted for the wrong database scope.");
       }
 
       clearSessionCredentialPayload(scope);
       if (await loadSessionCredentialPayload(scope)) {
-        throw new Error("The session unlock token remained after clear.");
+        throw new Error("The session credential token remained after clear.");
       }
 
       this.setStatus("Session cache check passed");
-      new Notice("Session unlock cache self-check passed.");
-      this.log("Session unlock cache self-check passed with dummy credentials.");
+      new Notice("Session credential cache self-check passed.");
+      this.log("Session credential cache self-check passed with dummy credentials.");
     } catch (error) {
       clearSessionCredentialPayload(scope);
       const message = error instanceof Error ? error.message : String(error);
       this.setStatus("Session cache check failed");
-      new Notice(`Session unlock cache self-check failed: ${message}`);
-      this.log(`Session unlock cache self-check failed: ${message}`);
+      new Notice(`Session credential cache self-check failed: ${message}`);
+      this.log(`Session credential cache self-check failed: ${message}`);
     }
   }
 
@@ -853,14 +900,14 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         throw new Error("Session storage or WebCrypto is unavailable in this runtime.");
       }
       this.setStatus("Reload cache check prepared");
-      new Notice("Session unlock cache reload check prepared. Reload Obsidian, then run Finish session unlock cache reload check.");
-      this.log("Prepared session unlock cache reload check with dummy credentials.");
+      new Notice("Session credential cache reload check prepared. Reload Obsidian, then run Finish session credential cache reload check.");
+      this.log("Prepared session credential cache reload check with dummy credentials.");
     } catch (error) {
       clearSessionCredentialPayload(scope);
       const message = error instanceof Error ? error.message : String(error);
       this.setStatus("Reload cache check failed");
-      new Notice(`Could not prepare session unlock cache reload check: ${message}`);
-      this.log(`Could not prepare session unlock cache reload check: ${message}`);
+      new Notice(`Could not prepare session credential cache reload check: ${message}`);
+      this.log(`Could not prepare session credential cache reload check: ${message}`);
     }
   }
 
@@ -882,14 +929,14 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       }
 
       this.setStatus("Reload cache check passed");
-      new Notice("Session unlock cache reload check passed.");
-      this.log("Session unlock cache reload check passed with dummy credentials.");
+      new Notice("Session credential cache reload check passed.");
+      this.log("Session credential cache reload check passed with dummy credentials.");
     } catch (error) {
       clearSessionCredentialPayload(scope);
       const message = error instanceof Error ? error.message : String(error);
       this.setStatus("Reload cache check failed");
-      new Notice(`Session unlock cache reload check failed: ${message}`);
-      this.log(`Session unlock cache reload check failed: ${message}`);
+      new Notice(`Session credential cache reload check failed: ${message}`);
+      this.log(`Session credential cache reload check failed: ${message}`);
     }
   }
 
@@ -897,7 +944,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     const scope = this.sessionCredentialScope();
     try {
       if (!this.settings.keepUnlockedDuringSession) {
-        throw new Error("Session unlock cache is disabled in settings.");
+        throw new Error("Session credential cache is disabled in settings.");
       }
       if (!(await this.ensureCredentialsUnlocked())) {
         return;
@@ -905,7 +952,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
       const payload = this.sessionCredentials ?? credentialPayloadFromSettings(this.getRuntimeSettings());
       if (!hasCredentialPayload(payload)) {
-        throw new Error("No unlocked CouchDB password and E2EE passphrase are available to check.");
+        throw new Error("No ready CouchDB password and E2EE passphrase are available to check.");
       }
 
       const savedToken = await saveSessionCredentialPayload(scope, payload);
@@ -1105,8 +1152,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!credentialsAreLocked(this.getRuntimeSettings())) {
       return true;
     }
-    new Notice("Unlock Light-LiveSync credentials to continue.");
-    return this.unlockCredentials();
+    if (await this.restorePersistentCredentials()) {
+      return true;
+    }
+    new Notice("Saved credentials could not be opened automatically. Update saved credentials once to refresh this device.");
+    return false;
   }
 
   private async preparePullOperation(action: "previewing" | "exporting" | "applying"): Promise<PullOperationContext | undefined> {
@@ -1270,7 +1320,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private scheduleVaultChangeBatchSync(): void {
     if (!this.canRunAutomaticSync()) {
-      this.setStatus("Changes queued. Unlock credentials to sync.");
+      this.setStatus("Changes queued. Update saved credentials to sync.");
       return;
     }
 
