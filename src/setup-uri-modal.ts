@@ -33,7 +33,7 @@ export class SetupUriModal extends Modal {
 
     new Setting(contentEl)
       .setName("Setup URI")
-      .setDesc("Paste the full obsidian://setuplivesync link, or the encoded settings payload from that link.")
+      .setDesc("Paste the obsidian://setuplivesync link. If you copied the full terminal output from the CouchDB helper, the plugin will find the setup link inside it.")
       .addTextArea((text) => {
         text.inputEl.rows = 6;
         text.setPlaceholder("obsidian://setuplivesync?settings=...");

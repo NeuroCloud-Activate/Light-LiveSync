@@ -75,6 +75,8 @@ deno run -A https://raw.githubusercontent.com/NeuroCloud-Activate/Light-LiveSync
 
 The copied command maps the setup form to the setup URI fields: Server Domain becomes `hostname`, Database Name becomes `database`, Database User becomes `username`, and Database Password becomes `password`. The Vault E2EE Passphrase becomes `passphrase`. If you are creating a new database user or database, also replace `admin_username` and `admin_password` with an existing CouchDB admin. The helper creates or updates the database user, creates or verifies the database, prepares LiveSync sync parameters, restricts database access to that database user, verifies that database user can read the database, and prints a setup URI that can be pasted back into **Use setup URI**.
 
+When importing the setup URI, paste the `obsidian://setuplivesync?settings=...` line. If you copied the full terminal output from the helper, Light-LiveSync will find the setup link inside it.
+
 For another device:
 
 1. On the original device, open Light-LiveSync settings.

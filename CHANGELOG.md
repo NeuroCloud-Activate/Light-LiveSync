@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.8
+
+- Accepts setup URI imports pasted from full server terminal output, including surrounding quotes or prompt text.
+- Clarifies that the setup URI screen can find the link inside copied CouchDB helper output.
+
 ## 0.1.7
 
 - Revises setup wording around Server Domain, Database Name, Database User, and Database Password from the server-side CouchDB instance.

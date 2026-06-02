@@ -13,6 +13,9 @@ import type { UpstreamSetupSettings } from "./settings";
 export const CONFIG_URI_BASE = "obsidian://setuplivesync?settings=";
 export const CONFIG_URI_BASE_QR = "obsidian://setuplivesync?settingsQR=";
 
+const SETUP_URI_IN_TEXT_PATTERN = /obsidian:\/\/setuplivesync\?settings=[^\s"'<>]+/i;
+const SETUP_URI_QR_IN_TEXT_PATTERN = /obsidian:\/\/setuplivesync\?settingsQR=[^\s"'<>]+/i;
+
 export class SetupUriError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -54,12 +57,19 @@ export function extractSetupPayload(input: string): string {
     throw new SetupUriError("Setup URI is empty.");
   }
 
-  if (trimmed.startsWith(CONFIG_URI_BASE)) {
-    return trimmed.slice(CONFIG_URI_BASE.length);
+  if (SETUP_URI_QR_IN_TEXT_PATTERN.test(trimmed)) {
+    throw new SetupUriError("QR setup links are not supported here. Paste the text setup URI that contains settings=.");
+  }
+
+  const embeddedSetupUri = trimmed.match(SETUP_URI_IN_TEXT_PATTERN)?.[0];
+  const candidate = embeddedSetupUri ?? trimmed;
+
+  if (candidate.startsWith(CONFIG_URI_BASE)) {
+    return candidate.slice(CONFIG_URI_BASE.length);
   }
 
   try {
-    const parsed = new URL(trimmed);
+    const parsed = new URL(candidate);
     const settings = parsed.searchParams.get("settings");
     if (settings) {
       return settings;
@@ -68,7 +78,7 @@ export function extractSetupPayload(input: string): string {
     // The Obsidian protocol handler passes the payload value rather than a full URL.
   }
 
-  return trimmed;
+  return candidate;
 }
 
 export async function decodeSettingsFromSetupUri(

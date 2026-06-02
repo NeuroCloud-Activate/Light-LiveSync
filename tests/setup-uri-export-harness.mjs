@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { decodeSettingsFromSetupUri } from "../src/setup-uri.ts";
+import { decodeSettingsFromSetupUri, extractSetupPayload } from "../src/setup-uri.ts";
 import {
   generateAdditionalDeviceSetupUri,
   upstreamSetupFromRuntimeSettings,
@@ -55,6 +55,24 @@ assert.equal(projected.requireE2EE, true);
 assert.equal(projected.usePathObfuscation, true);
 await assert.rejects(() => decodeSettingsFromSetupUri(uri, "wrong-passphrase"));
 
+const pastedTerminalOutput = `Setup URI:
+"${uri}
+# "`;
+const decodedFromPastedTerminalOutput = await decodeSettingsFromSetupUri(
+  pastedTerminalOutput,
+  runtimeSettings.passphrase
+);
+const projectedFromPastedTerminalOutput = settingsFromUpstreamSetup(decodedFromPastedTerminalOutput);
+assert.equal(projectedFromPastedTerminalOutput.couchDb.uri, runtimeSettings.couchDb.uri);
+assert.equal(projectedFromPastedTerminalOutput.couchDb.database, runtimeSettings.couchDb.database);
+assert.equal(projectedFromPastedTerminalOutput.couchDb.username, runtimeSettings.couchDb.username);
+assert.equal(projectedFromPastedTerminalOutput.couchDb.password, runtimeSettings.couchDb.password);
+
+assert.throws(
+  () => extractSetupPayload("obsidian://setuplivesync?settingsQR=example"),
+  /QR setup links are not supported/
+);
+
 assert.throws(
   () => validateSettingsForAdditionalDeviceUri({
     ...runtimeSettings,
@@ -77,5 +95,6 @@ console.log(JSON.stringify({
   decodedUser: projected.couchDb.username,
   decodedDeviceRole: projected.deviceSetupRole,
   e2eeRequired: projected.requireE2EE,
+  pastedTerminalOutputAccepted: true,
   plaintextSecretsHidden: !uri.includes("device-password") && !uri.includes("shared-e2ee-passphrase")
 }, null, 2));
