@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 const expectedId = "light-livesync";
 const expectedName = "Light-LiveSync";
-const expectedVersion = "0.1.2";
+const expectedVersion = "0.1.3";
 const expectedMinAppVersion = "1.5.0";
 const expectedFiles = ["main.js", "manifest.json", "styles.css", "sync-worker.js"];
 const expectedZipEntries = expectedFiles.map((file) => `light-livesync/${file}`).sort();
@@ -58,7 +58,7 @@ assert.equal(rootManifest.isDesktopOnly, false);
 assert.equal(typeof rootManifest.description, "string");
 assert.equal(rootManifest.description.length > 20, true);
 assert.equal(rootManifest.description.includes("Obsidian"), false);
-assert.equal(rootManifest.author, "Light-LiveSync contributors");
+assert.equal(rootManifest.author, "NeuroCloud");
 assert.equal(rootManifest.authorUrl, "https://github.com/NeuroCloud-Activate");
 assert.notEqual(rootManifest.authorUrl, "https://github.com/NeuroCloud-Activate/Light-LiveSync");
 assert.equal(packageJson.name, expectedId);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Updates the public plugin description and author metadata.
+
 ## 0.1.2
 
 - Improves CouchDB setup handling for HTTP 401/403 responses.
