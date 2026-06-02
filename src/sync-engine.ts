@@ -22,6 +22,7 @@ export type SyncOutcome =
       ok: true;
       message: string;
       metrics?: RuntimeSyncMetricsState;
+      continueSync?: boolean;
     }
   | {
       ok: false;
@@ -132,6 +133,7 @@ type PulledRemoteChanges = {
   summary: LocalStoreSummary;
 };
 
+const REMOTE_PULL_LIMIT = 500;
 const REMOTE_CACHE_BATCH_SIZE = 25;
 const AUTOMATIC_FULL_VAULT_SCAN_REASONS = new Set<SyncReason>([
   "startup",
@@ -327,7 +329,7 @@ export class LightweightSyncEngine {
     const checkpoint = await localStore.getCheckpoint();
     this.host.reportProgress?.({ phase: "pull-start", since: checkpoint.lastRemoteSeq });
     const pullStartedAt = Date.now();
-    const pulled = await client.getChangesSince(checkpoint.lastRemoteSeq, 100);
+    const pulled = await client.getChangesSince(checkpoint.lastRemoteSeq, REMOTE_PULL_LIMIT);
     let summary = await localStore.getSummary();
     let pulledBytes = 0;
     for (let index = 0; index < pulled.changes.length; index += REMOTE_CACHE_BATCH_SIZE) {
@@ -423,10 +425,18 @@ export class LightweightSyncEngine {
     metrics: RuntimeSyncMetricsState,
     applied?: AutoApplyOutcome
   ): SyncOutcome {
+    const pendingUpload = pulled.summary.pendingPush;
+    const pendingApply = pulled.summary.pendingApply;
+    const moreRemoteLikely = pulled.pulledCount >= REMOTE_PULL_LIMIT;
+    const continueSync = pendingUpload > 0 || moreRemoteLikely;
+    const nextPass = continueSync
+      ? " More sync work remains, so another pass will continue automatically."
+      : "";
     return {
       ok: true,
-      message: `Pushed ${pushed.pushed}. Pulled ${pulled.pulledCount}.${applied ? ` Applied ${applied.applied + applied.merged + applied.deleted}.` : ""} Pending apply: ${pulled.summary.pendingApply}.`,
-      metrics
+      message: `Uploaded ${pushed.pushed}, deleted ${pushed.deleted}, skipped ${pushed.skipped} unchanged file${pushed.skipped === 1 ? "" : "s"}. Downloaded ${pulled.pulledCount} remote change${pulled.pulledCount === 1 ? "" : "s"}.${applied ? ` Applied ${applied.applied + applied.merged + applied.deleted}.` : ""} Still waiting: ${pendingUpload} local upload${pendingUpload === 1 ? "" : "s"}, ${pendingApply} remote apply item${pendingApply === 1 ? "" : "s"}.${moreRemoteLikely ? " The remote returned a full batch, so more downloads may still be waiting." : ""}${nextPass}`,
+      metrics,
+      continueSync
     };
   }
 

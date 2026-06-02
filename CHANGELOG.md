@@ -1,9 +1,16 @@
 # Changelog
 
+## 0.1.16
+
+- Changes the status bar to show upload/download data rates as `LLS:Status (#U/#D KBps)` instead of file counts.
+- Keeps file counts, bytes read/received, and plain-language sync details in the Activity tab.
+- Refreshes the Activity log console while settings are open so long syncs do not appear stalled.
+- Reduces automatic runtime-check noise and automatically continues when a sync pass leaves more upload/download work queued.
+
 ## 0.1.15
 
 - Adds live sync progress reporting so manual sync no longer looks stuck after files are queued.
-- Shows compact `LLS:Status (#U/#D)` upload/download progress and KBps in the status bar.
+- Shows compact upload/download progress and KBps in the status bar.
 - Writes plain-language activity log milestones for server checks, uploads, downloads, apply work, and sync finish.
 
 ## 0.1.14

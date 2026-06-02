@@ -65,6 +65,9 @@ function render(settingsPatch) {
     },
     restoreRecoveryBackup() {},
     clearActivityLog() {},
+    onActivityLogChanged() {
+      return () => {};
+    },
     saveSettingsAndReschedule() {},
     resetLocalSyncState() {},
     getRuntimeSettings() {

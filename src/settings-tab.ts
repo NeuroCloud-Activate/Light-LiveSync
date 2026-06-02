@@ -7,6 +7,7 @@ type SettingsTabId = "sync" | "activity" | "advanced";
 
 export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   private readonly plugin: LightweightLiveSyncPlugin;
+  private stopActivityLogListener: (() => void) | undefined;
 
   constructor(plugin: LightweightLiveSyncPlugin) {
     super(plugin.app, plugin);
@@ -14,6 +15,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    this.clearActivityLogListener();
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("light-livesync-settings");
@@ -35,6 +37,16 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         this.renderSyncTab(containerEl);
         break;
     }
+  }
+
+  hide(): void {
+    this.clearActivityLogListener();
+    super.hide();
+  }
+
+  private clearActivityLogListener(): void {
+    this.stopActivityLogListener?.();
+    this.stopActivityLogListener = undefined;
   }
 
   private activeTab(): SettingsTabId {
@@ -657,14 +669,6 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
 
   private renderActivityLog(containerEl: SettingsContainer): void {
     this.section(containerEl, "Recent activity");
-    const log = this.plugin.settings.runtime.activityLog ?? [];
-    if (log.length === 0) {
-      new Setting(containerEl)
-        .setName("Activity log")
-        .setDesc("No recent setup or sync messages yet.");
-      return;
-    }
-
     new Setting(containerEl)
       .setName("Activity log")
       .setDesc("Plain-language setup and sync progress is kept here so you can tell what the plugin is doing without watching short popups.")
@@ -677,17 +681,30 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
 
     const consoleEl = containerEl.createEl("div");
     consoleEl.addClass("light-livesync-activity-console");
-    for (const entry of [...log].reverse()) {
-      const line = consoleEl.createEl("div");
-      line.addClass("light-livesync-activity-line");
-      line.createEl("span", { text: formatTime(entry.timestamp) });
-      line.createEl("span", { text: entry.message });
-    }
-    if (typeof window !== "undefined") {
-      window.setTimeout(() => {
-        consoleEl.scrollTop = consoleEl.scrollHeight;
-      }, 0);
-    }
+    const renderLines = () => {
+      consoleEl.empty();
+      const log = this.plugin.settings.runtime.activityLog ?? [];
+      if (log.length === 0) {
+        const line = consoleEl.createEl("div");
+        line.addClass("light-livesync-activity-line");
+        line.createEl("span", { text: "" });
+        line.createEl("span", { text: "No recent setup or sync messages yet." });
+        return;
+      }
+      for (const entry of [...log].reverse()) {
+        const line = consoleEl.createEl("div");
+        line.addClass("light-livesync-activity-line");
+        line.createEl("span", { text: formatTime(entry.timestamp) });
+        line.createEl("span", { text: entry.message });
+      }
+      if (typeof window !== "undefined") {
+        window.setTimeout(() => {
+          consoleEl.scrollTop = consoleEl.scrollHeight;
+        }, 0);
+      }
+    };
+    renderLines();
+    this.stopActivityLogListener = this.plugin.onActivityLogChanged(() => renderLines());
   }
 
   private renderSyncMetricsStatus(containerEl: SettingsContainer): void {

@@ -84,11 +84,35 @@ cooldownScheduler.request("manual", true);
 await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(cooldownStarts.at(-1).reason, "manual");
 
+const continueLogs = [];
+let continuationCalls = 0;
+const continuationScheduler = new SyncScheduler(
+  {
+    async sync() {
+      continuationCalls += 1;
+      return continuationCalls === 1
+        ? { ok: true, message: "First pass needs more work.", continueSync: true }
+        : { ok: true, message: "Second pass done." };
+    }
+  },
+  {
+    getMinimumIntervalMs: () => 0,
+    log: (message) => continueLogs.push(message),
+    setStatus: () => {}
+  }
+);
+
+continuationScheduler.request("manual", true);
+await new Promise((resolve) => setTimeout(resolve, 30));
+assert.equal(continuationCalls, 2);
+assert.match(continueLogs.join(" "), /continue with another sync pass/);
+
 console.log(JSON.stringify({
   ok: true,
   starts: starts.length,
   finishes: finishes.length,
   capturedFailure: finishes[1].errorMessage,
   automaticCooldown: true,
-  manualBypass: true
+  manualBypass: true,
+  automaticContinuation: true
 }, null, 2));

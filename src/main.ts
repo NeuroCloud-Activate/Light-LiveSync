@@ -110,9 +110,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private configuredAtLoad = false;
   private sessionCredentials: CredentialPayload | null = null;
   private lastProgressLogAt = 0;
-  private statusUploadCount = 0;
-  private statusDownloadCount = 0;
-  private statusTransferRate = "";
+  private statusUploadRate = "0";
+  private statusDownloadRate = "0";
+  private activityLogListeners = new Set<() => void>();
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -244,6 +244,13 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   async saveSettingsAndReschedule(): Promise<void> {
     await this.saveData(settingsForDisk(this.settings));
     this.reschedulePeriodicSync();
+  }
+
+  onActivityLogChanged(listener: () => void): () => void {
+    this.activityLogListeners.add(listener);
+    return () => {
+      this.activityLogListeners.delete(listener);
+    };
   }
 
   getRuntimeSettings(): LightweightLiveSyncSettings {
@@ -782,9 +789,12 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       snapshot: await this.buildRuntimeCapabilitySnapshot()
     });
     const ok = smoke.ok && capability.ok;
-    this.log(`Automatic runtime check: ${ok ? "passed" : "needs attention"}. ${smoke.message} ${capability.message}`);
-    for (const detail of [...smoke.details, ...capability.details]) {
-      this.log(`Automatic runtime check: ${detail}`);
+    this.log(`Automatic runtime check: ${ok ? "passed" : "needs attention"}. Local uploads waiting: ${this.settings.localQueue.pendingPush}; remote files waiting: ${this.settings.localQueue.pendingApply}.`);
+    if (!ok) {
+      this.log(`Automatic runtime check issue: ${smoke.message} ${capability.message}`);
+      for (const detail of [...smoke.details, ...capability.details]) {
+        this.log(`Automatic runtime check detail: ${detail}`);
+      }
     }
     if (!ok) {
       this.setStatus("Runtime check needs attention");
@@ -1520,9 +1530,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private recordSyncStart(reason: string, startedAt: number): void {
     this.lastProgressLogAt = 0;
-    this.statusUploadCount = 0;
-    this.statusDownloadCount = 0;
-    this.statusTransferRate = "";
+    this.statusUploadRate = "0";
+    this.statusDownloadRate = "0";
     const runtime: RuntimeDiagnosticsState = {
       ...this.settings.runtime,
       lastSyncReason: reason,
@@ -1811,23 +1820,22 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private reportSyncProgress(progress: SyncProgress): void {
     switch (progress.phase) {
       case "inspect-start":
-        this.statusTransferRate = "";
+        this.statusUploadRate = "0";
+        this.statusDownloadRate = "0";
         this.setStatus("Checking server");
         this.logProgress("Checking the CouchDB server before syncing.", true);
         return;
       case "inspect-complete":
-        this.statusTransferRate = "";
         this.setStatus("Server checked");
         this.logProgress(`CouchDB is reachable. The remote database currently has ${progress.documentCount} document${progress.documentCount === 1 ? "" : "s"}.`, true);
         return;
       case "push-start":
-        this.statusUploadCount = 0;
-        this.statusTransferRate = "";
+        this.statusUploadRate = "0";
+        this.statusDownloadRate = "0";
         this.setStatus(`Upload 0/${progress.total}`);
         this.logProgress(`Starting upload check for ${progress.total} queued file${progress.total === 1 ? "" : "s"}. Unchanged files will be skipped.`, true);
         return;
       case "push-file-start":
-        this.statusTransferRate = "";
         this.setStatus(`Upload ${progress.completed}/${progress.total}`);
         if (progress.completed === 0 || progress.completed % 25 === 0) {
           this.logProgress(
@@ -1837,8 +1845,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         }
         return;
       case "push-file-complete":
-        this.statusUploadCount = progress.pushed + progress.deleted;
-        this.statusTransferRate = formatRate(progress.bytes, progress.startedAt);
+        this.statusUploadRate = formatRateNumber(progress.bytes, progress.startedAt);
+        this.statusDownloadRate = "0";
         this.setStatus(`Upload ${progress.completed}/${progress.total} · ${formatRate(progress.bytes, progress.startedAt)}`);
         if (progress.completed === progress.total || progress.completed % 10 === 0) {
           this.logProgress(
@@ -1848,8 +1856,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         }
         return;
       case "push-complete":
-        this.statusUploadCount = progress.pushed + progress.deleted;
-        this.statusTransferRate = formatRate(progress.bytes, progress.startedAt);
+        this.statusUploadRate = formatRateNumber(progress.bytes, progress.startedAt);
+        this.statusDownloadRate = "0";
         this.setStatus(`Upload done · ${formatRate(progress.bytes, progress.startedAt)}`);
         this.logProgress(
           `Upload step finished: ${progress.pushed} uploaded, ${progress.deleted} deleted, ${progress.skipped} unchanged, ${progress.failed} failed (${formatBytes(progress.bytes)} read, ${formatRate(progress.bytes, progress.startedAt)}).`,
@@ -1857,13 +1865,14 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         );
         return;
       case "pull-start":
-        this.statusTransferRate = "";
+        this.statusUploadRate = "0";
+        this.statusDownloadRate = "0";
         this.setStatus("Checking downloads");
         this.logProgress("Checking for changes from other devices.", true);
         return;
       case "pull-batch":
-        this.statusDownloadCount = progress.completed;
-        this.statusTransferRate = formatRate(progress.bytes, progress.startedAt);
+        this.statusUploadRate = "0";
+        this.statusDownloadRate = formatRateNumber(progress.bytes, progress.startedAt);
         this.setStatus(`Down ${progress.completed}/${progress.total} · ${formatRate(progress.bytes, progress.startedAt)}`);
         this.logProgress(
           `Download progress: cached ${progress.completed} of ${progress.total} remote change${progress.total === 1 ? "" : "s"} (${formatBytes(progress.bytes)} received, ${formatRate(progress.bytes, progress.startedAt)}).`,
@@ -1871,8 +1880,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         );
         return;
       case "pull-complete":
-        this.statusDownloadCount = progress.total;
-        this.statusTransferRate = progress.total > 0 ? formatRate(progress.bytes, progress.startedAt) : "";
+        this.statusUploadRate = "0";
+        this.statusDownloadRate = progress.total > 0 ? formatRateNumber(progress.bytes, progress.startedAt) : "0";
         this.setStatus(progress.total > 0 ? `Down done · ${formatRate(progress.bytes, progress.startedAt)}` : "No downloads");
         this.logProgress(
           progress.total > 0
@@ -1882,7 +1891,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         );
         return;
       case "apply-start":
-        this.statusTransferRate = "";
+        this.statusUploadRate = "0";
+        this.statusDownloadRate = "0";
         this.setStatus(`Apply ${progress.pending}`);
         this.logProgress(`Applying ${progress.pending} downloaded file${progress.pending === 1 ? "" : "s"} into the vault with backups before changes.`, true);
         return;
@@ -1916,19 +1926,17 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
     const upload = trimmed.match(/^Upload(?:ing)?\s+(\d+)\/(\d+)(?:\s+·\s+(.+))?$/i);
     if (upload) {
-      return this.formatStatusBar("Uploading", upload[3]);
+      return this.formatStatusBar("Uploading");
     }
     const download = trimmed.match(/^Down(?:load)?\s+(\d+)\/(\d+)(?:\s+·\s+(.+))?$/i);
     if (download) {
-      return this.formatStatusBar("Downloading", download[3]);
+      return this.formatStatusBar("Downloading");
     }
     if (/upload done/i.test(trimmed)) {
-      const rate = trimmed.match(/·\s+(.+)$/)?.[1];
-      return this.formatStatusBar("Uploaded", rate);
+      return this.formatStatusBar("Uploaded");
     }
     if (/down done/i.test(trimmed)) {
-      const rate = trimmed.match(/·\s+(.+)$/)?.[1];
-      return this.formatStatusBar("Downloaded", rate);
+      return this.formatStatusBar("Downloaded");
     }
     if (/checking server/i.test(trimmed)) {
       return this.formatStatusBar("Checking");
@@ -1939,8 +1947,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (/^apply \d+/i.test(trimmed)) {
       return this.formatStatusBar("Applying");
     }
-    if (/^Pushed \d+\. Pulled \d+/i.test(trimmed)) {
-      return this.formatStatusBar("Synced");
+    if (/^(Pushed|Uploaded) \d+/i.test(trimmed)) {
+      return this.formatStatusBar("Synced", "0", "0");
     }
     if (/sync is running|sync queued|connecting|checking|retrying|scanning/i.test(trimmed)) {
       return this.formatStatusBar("Syncing");
@@ -1957,10 +1965,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     return this.formatStatusBar(trimmed.length > 18 ? `${trimmed.slice(0, 17).trim()}...` : trimmed);
   }
 
-  private formatStatusBar(status: string, rate = this.statusTransferRate): string {
-    const counts = `(${this.statusUploadCount}U/${this.statusDownloadCount}D)`;
-    const speed = rate && /KBps$/i.test(rate.trim()) ? ` ${rate.trim()}` : "";
-    return `${status} ${counts}${speed}`;
+  private formatStatusBar(status: string, uploadRate = this.statusUploadRate, downloadRate = this.statusDownloadRate): string {
+    return `${status} (${uploadRate}U/${downloadRate}D KBps)`;
   }
 
   private log(message: string): void {
@@ -1980,6 +1986,13 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       }
     };
     console.log(`[Light-LiveSync] ${safeMessage}`);
+    for (const listener of this.activityLogListeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.warn("[Light-LiveSync] Activity log listener failed", error);
+      }
+    }
   }
 
   private redactLogMessage(message: string): string {
@@ -2031,10 +2044,14 @@ function formatBytes(bytes: number): string {
 }
 
 function formatRate(bytes: number, startedAt: number): string {
+  return `${formatRateNumber(bytes, startedAt)} KBps`;
+}
+
+function formatRateNumber(bytes: number, startedAt: number): string {
   const elapsedSeconds = Math.max(0.5, (Date.now() - startedAt) / 1000);
   const kbPerSecond = Math.max(0, bytes / 1000 / elapsedSeconds);
   if (kbPerSecond < 10) {
-    return `${kbPerSecond.toFixed(1)} KBps`;
+    return kbPerSecond.toFixed(1);
   }
-  return `${Math.round(kbPerSecond)} KBps`;
+  return String(Math.round(kbPerSecond));
 }
