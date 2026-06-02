@@ -251,7 +251,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (loaded?.maxPushChangesPerSync === undefined || loaded.maxPushChangesPerSync <= 4) {
       this.settings.maxPushChangesPerSync = DEFAULT_SETTINGS.maxPushChangesPerSync;
     }
-    if (loaded?.maxStorageApplyConcurrency === undefined || loaded.maxStorageApplyConcurrency <= 1) {
+    if (loaded?.maxStorageApplyConcurrency === undefined || loaded.maxStorageApplyConcurrency <= 25) {
       this.settings.maxStorageApplyConcurrency = DEFAULT_SETTINGS.maxStorageApplyConcurrency;
     }
   }

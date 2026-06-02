@@ -243,18 +243,6 @@ async function applyPreview(
   options: Pick<LiveVaultApplyOptions, "configDir" | "shouldApplyPath">,
   result: MutableLiveVaultApplyResult
 ): Promise<void> {
-  if (preview.status !== "ready" && preview.status !== "deleted") {
-    if (preview.status === "unsupported") {
-      result.skipped++;
-      result.skippedIds.push(preview.id);
-      recordReason(result.skippedReasons, preview.path, preview.reason ?? "Unsupported remote file format.");
-      return;
-    }
-    result.waiting++;
-    recordReason(result.waitingReasons, preview.path, preview.reason ?? `Remote file is ${preview.status}.`);
-    return;
-  }
-
   const targetPath = safeVaultPath(preview.path);
   if (options.shouldApplyPath && !options.shouldApplyPath(targetPath)) {
     result.skipped++;
@@ -266,6 +254,18 @@ async function applyPreview(
     result.skipped++;
     result.skippedIds.push(preview.id);
     recordReason(result.skippedReasons, targetPath, "Protected vault location.");
+    return;
+  }
+
+  if (preview.status !== "ready" && preview.status !== "deleted") {
+    if (preview.status === "unsupported") {
+      result.skipped++;
+      result.skippedIds.push(preview.id);
+      recordReason(result.skippedReasons, preview.path, preview.reason ?? "Unsupported remote file format.");
+      return;
+    }
+    result.waiting++;
+    recordReason(result.waitingReasons, preview.path, preview.reason ?? `Remote file is ${preview.status}.`);
     return;
   }
 

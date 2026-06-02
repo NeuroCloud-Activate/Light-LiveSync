@@ -456,6 +456,61 @@ assert.equal(noOpOutcome.metrics.pushedFiles, 0);
 assert.equal(noOpOutcome.metrics.remoteDocsWritten, 0);
 assert.equal(noOpOutcome.metrics.localBytesRead, 12);
 
+const applyBacklogStore = new MemoryStore([]);
+applyBacklogStore.pendingApply = 3;
+let applyBacklogCalls = 0;
+const applyBacklogEngine = new LightweightSyncEngine({
+  getSettings: () => settings,
+  updateRemoteInspection: async () => {},
+  updateLocalQueue: async () => {},
+  getLocalStore: () => applyBacklogStore,
+  readLocalFileSnapshot: async () => undefined,
+  buildLocalPushBundle: async () => {
+    throw new Error("Apply-only sync should not build a local bundle.");
+  },
+  applyPulledChanges: async () => {
+    applyBacklogCalls += 1;
+    applyBacklogStore.pendingApply = Math.max(0, applyBacklogStore.pendingApply - 1);
+    return { applied: 0, deleted: 0, skipped: 1, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 };
+  },
+  createRemoteClient: () => ({
+    ...fakeClient,
+    async getChangesSince() {
+      return { lastSeq: "0", changes: [] };
+    }
+  }),
+  log: () => {}
+});
+const applyBacklogOutcome = await applyBacklogEngine.sync("startup");
+assert.equal(applyBacklogOutcome.ok, true);
+assert.equal(applyBacklogCalls, 1);
+assert.equal(applyBacklogOutcome.continueSync, true);
+assert.equal(applyBacklogOutcome.message.includes("More sync work remains"), true);
+
+const waitingBacklogStore = new MemoryStore([]);
+waitingBacklogStore.pendingApply = 3;
+const waitingBacklogEngine = new LightweightSyncEngine({
+  getSettings: () => settings,
+  updateRemoteInspection: async () => {},
+  updateLocalQueue: async () => {},
+  getLocalStore: () => waitingBacklogStore,
+  readLocalFileSnapshot: async () => undefined,
+  buildLocalPushBundle: async () => {
+    throw new Error("Waiting apply sync should not build a local bundle.");
+  },
+  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, waiting: 3, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
+  createRemoteClient: () => ({
+    ...fakeClient,
+    async getChangesSince() {
+      return { lastSeq: "0", changes: [] };
+    }
+  }),
+  log: () => {}
+});
+const waitingBacklogOutcome = await waitingBacklogEngine.sync("startup");
+assert.equal(waitingBacklogOutcome.ok, true);
+assert.equal(waitingBacklogOutcome.continueSync, false);
+
 class PullBatchStore extends MemoryStore {
   constructor() {
     super([]);

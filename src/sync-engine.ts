@@ -446,7 +446,10 @@ export class LightweightSyncEngine {
     const pendingUpload = pulled.summary.pendingPush;
     const pendingApply = pulled.summary.pendingApply;
     const moreRemoteLikely = pulled.pulledCount >= REMOTE_PULL_LIMIT;
-    const continueSync = pendingUpload > 0 || moreRemoteLikely;
+    const appliedProgress = applied
+      ? applied.applied + applied.merged + applied.deleted + applied.skipped > 0
+      : false;
+    const continueSync = pendingUpload > 0 || moreRemoteLikely || (pendingApply > 0 && appliedProgress);
     const nextPass = continueSync
       ? " More sync work remains, so another pass will continue automatically."
       : "";

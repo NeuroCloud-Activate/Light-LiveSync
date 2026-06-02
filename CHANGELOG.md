@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.22
+
+- Clears excluded remote apply records before missing chunks can leave them waiting.
+- Continues automatic sync passes while remote apply cleanup is making progress, then stops when only genuinely incomplete files remain.
+- Raises the default remote file apply batch from 25 to 50 files per pass and upgrades older default installs automatically.
+
 ## 0.1.21
 
 - Excludes copied Light-LiveSync source folders and common development folders from vault sync and remote apply.

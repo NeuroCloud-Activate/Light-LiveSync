@@ -252,6 +252,33 @@ assert.equal(excludedResult.skipped, 1);
 assert.deepEqual(excludedResult.skippedIds, ["doc-excluded"]);
 assert.equal(excludedResult.skippedReasons.some((reason) => /Excluded from sync/.test(reason)), true);
 
+const excludedMissingChunkResult = await applyReadyPreviewsToLiveVault(
+  vault,
+  [
+    {
+      id: "doc-excluded-missing",
+      rev: "1-excluded-missing",
+      path: ".obsidian/plugins/Light-LiveSync/Light-LiveSync-main/main.js",
+      status: "missing-chunks",
+      contentType: "text",
+      chunkCount: 14,
+      byteLength: 0,
+      missingChunkIds: ["h:missing"],
+      reason: "Missing 1 of 14 chunks."
+    }
+  ],
+  {
+    configDir: ".obsidian",
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts",
+    shouldApplyPath: (path) => !path.includes("Light-LiveSync-main")
+  }
+);
+
+assert.equal(excludedMissingChunkResult.skipped, 1);
+assert.equal(excludedMissingChunkResult.waiting, 0);
+assert.deepEqual(excludedMissingChunkResult.skippedIds, ["doc-excluded-missing"]);
+assert.equal(excludedMissingChunkResult.skippedReasons.some((reason) => /Excluded from sync/.test(reason)), true);
+
 const binary = new Uint8Array([1, 2, 3, 4]).buffer;
 let applyYields = 0;
 const binaryResult = await applyReadyPreviewsToLiveVault(
@@ -335,6 +362,7 @@ console.log(JSON.stringify({
   adapterOnlyFilesSync: adapterOnlyResult.failed === 0,
   terminalSkipsClear: skipAndWaitResult.skippedIds.length,
   excludedRemoteItemsClear: excludedResult.skippedIds.length,
+  excludedMissingChunksClear: excludedMissingChunkResult.skippedIds.length,
   waitingStaysQueued: skipAndWaitResult.waiting,
   binary: true,
   batchApplied: batchResult.applied,
