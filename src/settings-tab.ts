@@ -3,6 +3,7 @@ import type LightweightLiveSyncPlugin from "./main";
 import { credentialsAreLocked, normaliseCouchDbUri, normaliseDatabaseName } from "./settings";
 
 type SettingsContainer = HTMLElement;
+type SettingsTabId = "sync" | "activity" | "advanced";
 
 export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   private readonly plugin: LightweightLiveSyncPlugin;
@@ -19,20 +20,65 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     containerEl.createEl("p", {
       text: "A low-noise vault sync setup for CouchDB. Defaults favor encrypted sync, small batches, automatic text merges, and recovery backups."
     });
+    this.renderTabs(containerEl);
 
+    switch (this.activeTab()) {
+      case "activity":
+        this.renderStatusSection(containerEl);
+        break;
+      case "advanced":
+        this.renderAdvancedTab(containerEl);
+        break;
+      case "sync":
+      default:
+        this.renderSyncTab(containerEl);
+        break;
+    }
+  }
+
+  private activeTab(): SettingsTabId {
+    return this.plugin.settings.settingsTab ?? "sync";
+  }
+
+  private renderTabs(containerEl: SettingsContainer): void {
+    const active = this.activeTab();
+    new Setting(containerEl)
+      .setName("View")
+      .addButton((button) => {
+        button.setButtonText(active === "sync" ? "Sync current" : "Sync").onClick(async () => {
+          this.plugin.settings.settingsTab = "sync";
+          await this.plugin.saveSettingsAndReschedule();
+          this.display();
+        });
+      })
+      .addButton((button) => {
+        button.setButtonText(active === "activity" ? "Sync activity current" : "Sync activity").onClick(async () => {
+          this.plugin.settings.settingsTab = "activity";
+          await this.plugin.saveSettingsAndReschedule();
+          this.display();
+        });
+      })
+      .addButton((button) => {
+        button.setButtonText(active === "advanced" ? "Advanced current" : "Advanced").onClick(async () => {
+          this.plugin.settings.settingsTab = "advanced";
+          await this.plugin.saveSettingsAndReschedule();
+          this.display();
+        });
+      });
+  }
+
+  private renderSyncTab(containerEl: SettingsContainer): void {
     this.renderHealthSection(containerEl);
     this.renderSetupSection(containerEl);
     this.renderConnectionSection(containerEl);
     this.renderAutomaticSyncSummary(containerEl);
-    this.renderSafetySummary(containerEl);
-    this.renderRuntimeCheckSummary(containerEl);
-    if (this.plugin.settings.showAdvancedSettings) {
-      this.renderSecuritySection(containerEl);
-      this.renderSchedulerSection(containerEl);
-      this.renderFolderSection(containerEl);
-    }
-    this.renderAdvancedSettingsToggle(containerEl);
-    this.renderStatusSection(containerEl);
+  }
+
+  private renderAdvancedTab(containerEl: SettingsContainer): void {
+    this.renderSecuritySection(containerEl);
+    this.renderAdvancedConnectionSection(containerEl);
+    this.renderSchedulerSection(containerEl);
+    this.renderFolderSection(containerEl);
   }
 
   private section(containerEl: SettingsContainer, title: string): SettingsContainer {
@@ -76,7 +122,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     if (credentialsAreLocked(this.plugin.getRuntimeSettings())) {
       new Setting(containerEl)
         .setName("Unlock to sync")
-        .setDesc("Your server password and vault encryption passphrase are saved encrypted. Unlock them once after opening Obsidian so sync can run.")
+        .setDesc("Saved credentials could not be unlocked automatically on this device. Unlock once or update the saved credentials.")
         .addButton((button) => {
           button.setButtonText("Unlock").setCta().onClick(async () => {
             await this.plugin.unlockCredentials();
@@ -258,10 +304,10 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       return "No encrypted server password or vault passphrase is saved yet. Add them during setup or with Update.";
     }
     return credentialsAreLocked(this.plugin.getRuntimeSettings())
-      ? "Saved safely, but locked for this Obsidian session. Unlock once before syncing."
-      : this.plugin.settings.keepUnlockedDuringSession
-        ? "Saved encrypted on disk and unlocked for this Obsidian session, including renderer refreshes."
-        : "Saved encrypted on disk and unlocked in memory for this Obsidian session.";
+      ? "Saved encrypted, but not unlocked. Automatic unlock can be refreshed by updating the saved credentials."
+      : this.plugin.settings.autoUnlockCredentials
+        ? "Saved encrypted and set to unlock automatically on this device when the app starts."
+        : "Saved encrypted and unlocked only after manual entry on this device.";
   }
 
   private renderAutomaticSyncSummary(containerEl: SettingsContainer): void {
@@ -269,65 +315,11 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Runs quietly in the background")
       .setDesc(
-        `Local edits are batched for ${this.plugin.settings.vaultChangeBatchWindowSec} seconds, uploads are limited to ${this.plugin.settings.maxPushChangesPerSync} files per run, failed syncs cool down for ${this.plugin.settings.syncFailureCooldownSec} seconds, and periodic fallback checks every ${this.plugin.settings.periodicSyncIntervalSec} seconds.`
+        `Local edits are batched for ${this.plugin.settings.vaultChangeBatchWindowSec} seconds, each run can upload up to ${this.plugin.settings.maxPushChangesPerSync} changed files, failed syncs cool down for ${this.plugin.settings.syncFailureCooldownSec} seconds, and periodic fallback checks every ${this.plugin.settings.periodicSyncIntervalSec} seconds.`
       )
       .addButton((button) => {
         button.setButtonText("Sync now").onClick(async () => {
           await this.plugin.syncNow();
-          this.display();
-        });
-      });
-  }
-
-  private renderSafetySummary(containerEl: SettingsContainer): void {
-    this.section(containerEl, "Safety");
-    new Setting(containerEl)
-      .setName("Encrypted and recoverable")
-      .setDesc(
-        this.plugin.settings.keepUnlockedDuringSession
-          ? "E2EE is required by default, note paths are obfuscated, remote text differences are merged automatically, backups are created before live vault changes, and sync can recover from renderer refreshes during this Obsidian session."
-          : "E2EE is required by default, note paths are obfuscated, remote text differences are merged automatically, and backups are created before live vault changes are applied."
-      );
-  }
-
-  private renderRuntimeCheckSummary(containerEl: SettingsContainer): void {
-    this.section(containerEl, "Runtime check");
-    new Setting(containerEl)
-      .setName("Confirm loaded plugin state")
-      .setDesc("Checks the loaded bundle, mobile-capable manifest, transport mode, credential state, remote readiness, and local queues without syncing files.")
-      .addButton((button) => {
-        button.setButtonText("Run check").onClick(() => {
-          this.plugin.runRuntimeSmokeCheck();
-          this.display();
-        });
-      })
-      .addButton((button) => {
-        button.setButtonText("Check device APIs").onClick(async () => {
-          await this.plugin.runRuntimeCapabilityCheck();
-          this.display();
-        });
-      })
-      .addButton((button) => {
-        button.setButtonText("Write report").onClick(async () => {
-          await this.plugin.writeRuntimeEvidenceReport();
-          this.display();
-        });
-      });
-  }
-
-  private renderAdvancedSettingsToggle(containerEl: SettingsContainer): void {
-    this.section(containerEl, "Advanced");
-    new Setting(containerEl)
-      .setName("Show advanced settings")
-      .setDesc(
-        this.plugin.settings.showAdvancedSettings
-          ? "Advanced controls are visible. Keep defaults unless a network, proxy, or troubleshooting case needs tuning."
-          : "Hidden by default so normal use stays simple. These controls include proxy headers, request mode, timing, retry, and folder details."
-      )
-      .addToggle((toggle) => {
-        toggle.setValue(this.plugin.settings.showAdvancedSettings).onChange(async (value) => {
-          this.plugin.settings.showAdvancedSettings = value;
-          await this.plugin.saveSettingsAndReschedule();
           this.display();
         });
       });
@@ -339,19 +331,20 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.renderCouchDbDatabase(containerEl);
     this.renderCouchDbUsername(containerEl);
     this.renderConnectionCheck(containerEl);
-    if (this.plugin.settings.showAdvancedSettings) {
-      this.renderCustomHeaders(containerEl);
+  }
 
-      new Setting(containerEl)
-        .setName("Use Obsidian request API")
-        .setDesc("Advanced. Leave off for the standard fetch transport. Turn on only if your platform, proxy, or CORS setup needs Obsidian's request handling mode.")
-        .addToggle((toggle) => {
-          toggle.setValue(this.plugin.settings.couchDb.useRequestApi).onChange(async (value) => {
-            this.plugin.settings.couchDb.useRequestApi = value;
-            await this.plugin.saveSettingsAndReschedule();
-          });
+  private renderAdvancedConnectionSection(containerEl: SettingsContainer): void {
+    this.section(containerEl, "Advanced connection");
+    this.renderCustomHeaders(containerEl);
+    new Setting(containerEl)
+      .setName("Use request API")
+      .setDesc("Leave off for the standard fetch transport. Turn on only if your platform, proxy, or CORS setup needs the app request handling mode.")
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.couchDb.useRequestApi).onChange(async (value) => {
+          this.plugin.settings.couchDb.useRequestApi = value;
+          await this.plugin.saveSettingsAndReschedule();
         });
-    }
+      });
   }
 
   private renderCouchDbServer(containerEl: SettingsContainer): void {
@@ -429,6 +422,16 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.section(containerEl, "Advanced security");
 
     new Setting(containerEl)
+      .setName("Unlock automatically on this device")
+      .setDesc("Recommended for phones and tablets. The server password and vault passphrase stay encrypted in plugin data, and this device keeps a local unlock key so background sync can start after app launch.")
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.autoUnlockCredentials).onChange(async (value) => {
+          await this.plugin.setAutoUnlockCredentials(value);
+          this.display();
+        });
+      });
+
+    new Setting(containerEl)
       .setName("Require E2EE")
       .setDesc("Recommended. Sync will not send or apply vault content unless the shared encryption passphrase is available.")
       .addToggle((toggle) => {
@@ -457,7 +460,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Keep unlocked during this session")
-      .setDesc("Recommended for reliable background sync. Saves a temporary unlock token in Obsidian session storage so sync can continue after a renderer refresh; saved plugin settings still keep raw secrets redacted.")
+      .setDesc("Keeps a temporary session token after credentials are unlocked, which helps renderer refreshes continue syncing without another prompt.")
       .addToggle((toggle) => {
         toggle.setValue(this.plugin.settings.keepUnlockedDuringSession).onChange(async (value) => {
           await this.plugin.setKeepUnlockedDuringSession(value);
@@ -477,7 +480,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.renderBooleanSetting(containerEl, "Use background worker", "useBackgroundWorker", "Moves chunking, hashing, and encryption off the main Obsidian thread when the device supports it. If it fails, the plugin falls back automatically.");
     this.renderPeriodicSync(containerEl);
     this.renderNumberSetting(containerEl, "Vault change batch window", "vaultChangeBatchWindowSec", 5, "Seconds to wait after local changes before syncing. Higher values use less data on poor connections.");
-    this.renderNumberSetting(containerEl, "Max files uploaded per sync", "maxPushChangesPerSync", 1, "Limits how many changed files upload in one run so large edit bursts drain gently over several syncs.");
+    this.renderNumberSetting(containerEl, "Max files uploaded per sync", "maxPushChangesPerSync", 1, "Upper bound for changed files uploaded in one run. The default is high enough for full-vault first syncs while fingerprints skip unchanged files.");
     this.renderNumberSetting(containerEl, "First retry after failed upload", "failedPushRetryBaseSec", 5, "Seconds before retrying a failed upload. The changed file stays queued safely.");
     this.renderNumberSetting(containerEl, "Longest retry delay", "failedPushRetryMaxSec", 30, "Maximum seconds between retry attempts for the same failed upload.");
     this.renderNumberSetting(containerEl, "Sync failure cooldown", "syncFailureCooldownSec", 30, "Seconds automatic sync waits after a failed run before trying again. Manual Sync now can still run immediately.");
@@ -584,20 +587,18 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   }
 
   private renderStatusSection(containerEl: SettingsContainer): void {
-    this.section(containerEl, "Status");
+    this.section(containerEl, "Sync activity");
     new Setting(containerEl)
       .setName("Sync activity")
       .setDesc(this.statusSummary());
-    if (this.plugin.settings.showAdvancedSettings) {
-      new Setting(containerEl).setName("Remote database").setDesc(this.plugin.settings.couchDb.database || "Not configured yet");
-      this.renderRemoteStatus(containerEl);
-      this.renderRuntimeStatus(containerEl);
-      this.renderSyncMetricsStatus(containerEl);
-      this.renderQueueStatus(containerEl);
-      this.renderPreviewStatus(containerEl);
-      this.renderStagingStatus(containerEl);
-      this.renderLiveApplyStatus(containerEl);
-    }
+    new Setting(containerEl).setName("Remote database").setDesc(this.plugin.settings.couchDb.database || "Not configured yet");
+    this.renderRemoteStatus(containerEl);
+    this.renderRuntimeStatus(containerEl);
+    this.renderSyncMetricsStatus(containerEl);
+    this.renderQueueStatus(containerEl);
+    this.renderPreviewStatus(containerEl);
+    this.renderStagingStatus(containerEl);
+    this.renderLiveApplyStatus(containerEl);
   }
 
   private statusSummary(): string {
@@ -608,7 +609,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       return "Not connected yet. Use Connect CouchDB or Use setup URI above.";
     }
     if (credentialsAreLocked(settings)) {
-      return "Credentials are saved safely and need one unlock for this Obsidian session.";
+      return "Credentials are saved but could not be unlocked automatically on this device.";
     }
     if (runtime.lastSyncStartedAt > 0 && runtime.lastSyncFinishedAt === 0) {
       return "Sync is running in the background.";

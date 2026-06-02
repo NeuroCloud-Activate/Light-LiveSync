@@ -1,7 +1,7 @@
 {
   "id": "light-livesync",
   "name": "Light-LiveSync",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.5.0",
   "description": "Simple, low-contention CouchDB live sync with setup URI compatibility and encrypted vault sync.",
   "author": "Light-LiveSync contributors",

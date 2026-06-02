@@ -89,6 +89,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    await this.restorePersistentCredentials();
     await this.restoreSessionCredentials();
     this.configuredAtLoad = this.settings.configured;
 
@@ -138,6 +139,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.reschedulePeriodicSync();
 
     this.app.workspace.onLayoutReady(() => {
+      void this.runAutomaticRuntimeCheck();
       if (this.configuredAtLoad && this.settings.syncOnStart && this.canRunAutomaticSync()) {
         this.scheduler.request("startup", true);
       }
@@ -194,8 +196,14 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         }
       },
       upstreamSettings: loaded?.upstreamSettings ?? DEFAULT_SETTINGS.upstreamSettings,
-      credentialStore: loaded?.credentialStore ?? null
+      credentialStore: loaded?.credentialStore ?? null,
+      autoUnlockCredentials: loaded?.autoUnlockCredentials ?? DEFAULT_SETTINGS.autoUnlockCredentials,
+      credentialUnlockKey: loaded?.credentialUnlockKey ?? DEFAULT_SETTINGS.credentialUnlockKey,
+      settingsTab: loaded?.settingsTab ?? DEFAULT_SETTINGS.settingsTab
     };
+    if (loaded?.maxPushChangesPerSync === undefined || loaded.maxPushChangesPerSync <= 4) {
+      this.settings.maxPushChangesPerSync = DEFAULT_SETTINGS.maxPushChangesPerSync;
+    }
   }
 
   async saveSettingsAndReschedule(): Promise<void> {
@@ -233,6 +241,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private async restoreSessionCredentials(): Promise<void> {
+    if (this.sessionCredentials) {
+      return;
+    }
     if (!this.settings.keepUnlockedDuringSession || !this.settings.credentialStore || !hasUsableRemote(this.settings)) {
       return;
     }
@@ -244,7 +255,33 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
     this.sessionCredentials = payload;
     this.settings = applyCredentialPayload(this.settings, payload);
+    await this.refreshAutoUnlockStore(payload);
     this.log("Credentials restored for this Obsidian session.");
+  }
+
+  private async restorePersistentCredentials(): Promise<void> {
+    if (
+      !this.settings.autoUnlockCredentials ||
+      !this.settings.credentialStore ||
+      !this.settings.credentialUnlockKey ||
+      !hasUsableRemote(this.settings)
+    ) {
+      return;
+    }
+
+    try {
+      const payload = await decryptCredentialPayload(this.settings.credentialStore, this.settings.credentialUnlockKey);
+      if (!hasCredentialPayload(payload)) {
+        return;
+      }
+      this.sessionCredentials = payload;
+      this.settings = applyCredentialPayload(this.settings, payload);
+      await this.refreshAutoUnlockStore(payload);
+      this.log("Credentials restored automatically from this device.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Automatic credential restore failed: ${message}`);
+    }
   }
 
   private async rememberSessionCredentials(payload: CredentialPayload): Promise<void> {
@@ -263,6 +300,55 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`Session credential cache unavailable: ${message}`);
     }
+  }
+
+  async setAutoUnlockCredentials(value: boolean): Promise<void> {
+    this.settings.autoUnlockCredentials = value;
+    if (!value && this.sessionCredentials && hasCredentialPayload(this.sessionCredentials)) {
+      this.settings.credentialStore = await this.encryptCredentialPayloadForSettings(this.settings, this.sessionCredentials, this.sessionCredentials.passphrase);
+      this.settings.credentialUnlockKey = "";
+    } else if (!value) {
+      this.settings.credentialUnlockKey = "";
+    } else if (this.sessionCredentials && hasCredentialPayload(this.sessionCredentials)) {
+      this.settings.credentialStore = await this.encryptCredentialPayloadForSettings(this.settings, this.sessionCredentials);
+    }
+    await this.saveSettingsAndReschedule();
+  }
+
+  private async encryptCredentialPayloadForSettings(
+    settings: LightweightLiveSyncSettings,
+    payload: CredentialPayload,
+    fallbackUnlockPassphrase = ""
+  ) {
+    const unlockPassphrase = settings.autoUnlockCredentials
+      ? this.ensureCredentialUnlockKey(settings)
+      : fallbackUnlockPassphrase || payload.passphrase;
+    return encryptCredentialPayload(payload, unlockPassphrase, settings.credentialStore);
+  }
+
+  private async refreshAutoUnlockStore(payload: CredentialPayload): Promise<void> {
+    if (!this.settings.autoUnlockCredentials || !hasCredentialPayload(payload)) {
+      return;
+    }
+    this.settings.credentialStore = await this.encryptCredentialPayloadForSettings(this.settings, payload);
+    await this.saveSettingsAndReschedule();
+  }
+
+  private ensureCredentialUnlockKey(settings: LightweightLiveSyncSettings): string {
+    if (!settings.credentialUnlockKey) {
+      settings.credentialUnlockKey = this.generateCredentialUnlockKey();
+    }
+    return settings.credentialUnlockKey;
+  }
+
+  private generateCredentialUnlockKey(): string {
+    const bytes = new Uint8Array(32);
+    globalThis.crypto.getRandomValues(bytes);
+    let binary = "";
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+    return btoa(binary);
   }
 
   async resetLocalSyncState(databaseNameToClear = this.settings.couchDb.database): Promise<void> {
@@ -327,7 +413,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       });
 
       const sessionCredentials = credentialPayloadFromSettings(nextSettings);
-      nextSettings.credentialStore = await encryptCredentialPayload(sessionCredentials, nextSettings.passphrase);
+      nextSettings.credentialStore = await this.encryptCredentialPayloadForSettings(nextSettings, sessionCredentials, nextSettings.passphrase);
 
       await this.resetLocalSyncState(nextSettings.couchDb.database);
       this.vaultEventCutoffMs = Date.now();
@@ -352,7 +438,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       const nextSettings = settingsFromUpstreamSetup(upstreamSettings);
       const credentialPayload = credentialPayloadFromSettings(nextSettings);
       if (hasCredentialPayload(credentialPayload) && passphrase) {
-        nextSettings.credentialStore = await encryptCredentialPayload(credentialPayload, passphrase);
+        nextSettings.credentialStore = await this.encryptCredentialPayloadForSettings(nextSettings, credentialPayload, passphrase);
         this.sessionCredentials = credentialPayload;
       }
       this.settings = nextSettings;
@@ -378,16 +464,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       const nextSettings = settingsFromUpstreamSetup(upstreamSettings);
       const credentialPayload = credentialPayloadFromSettings(nextSettings);
       if (hasCredentialPayload(credentialPayload)) {
-        const credentialPassphrase = await new UnlockCredentialsModal(
-          this.app,
-          "Protect imported credentials",
-          "Save encrypted"
-        ).openAndWait();
-        if (!credentialPassphrase) {
-          new Notice("Credential passphrase is required to import QR settings with secrets.");
-          return;
-        }
-        nextSettings.credentialStore = await encryptCredentialPayload(credentialPayload, credentialPassphrase);
+        nextSettings.credentialStore = await this.encryptCredentialPayloadForSettings(nextSettings, credentialPayload, "");
         this.sessionCredentials = credentialPayload;
       }
       this.settings = nextSettings;
@@ -429,8 +506,6 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         callback: () => void this.initializeRemoteSyncParameters()
       },
       { id: "check-couchdb-connection", name: "Check CouchDB connection", callback: () => void this.verifyConnectionNow() },
-      { id: "run-runtime-smoke-check", name: "Run runtime smoke check", callback: () => this.runRuntimeSmokeCheck() },
-      { id: "run-runtime-capability-check", name: "Run desktop/mobile capability check", callback: () => void this.runRuntimeCapabilityCheck() },
       { id: "write-runtime-evidence-report", name: "Write runtime evidence report", callback: () => void this.writeRuntimeEvidenceReport() },
       { id: "run-session-cache-self-check", name: "Run session unlock cache self-check", callback: () => void this.runSessionCredentialCacheSelfCheck() },
       { id: "prepare-session-cache-reload-check", name: "Prepare session unlock cache reload check", callback: () => void this.prepareSessionCredentialCacheReloadCheck() },
@@ -470,6 +545,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       const payload = await decryptCredentialPayload(this.settings.credentialStore, passphrase);
       this.sessionCredentials = payload;
       this.settings = applyCredentialPayload(this.settings, payload);
+      await this.refreshAutoUnlockStore(payload);
       await this.rememberSessionCredentials(payload);
       await this.saveSettingsAndReschedule();
       this.setStatus("Credentials unlocked");
@@ -491,18 +567,14 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!result) {
       return;
     }
-    if (!result.unlockPassphrase) {
+    if (!this.settings.autoUnlockCredentials && !result.unlockPassphrase) {
       new Notice("A credential unlock passphrase is required so saved secrets stay encrypted on this device.");
       return;
     }
 
     this.settings = applyCredentialPayload(this.settings, result.credentials);
     this.sessionCredentials = result.credentials;
-    this.settings.credentialStore = await encryptCredentialPayload(
-      result.credentials,
-      result.unlockPassphrase,
-      this.settings.credentialStore
-    );
+    this.settings.credentialStore = await this.encryptCredentialPayloadForSettings(this.settings, result.credentials, result.unlockPassphrase);
     this.settings.configured = !!this.settings.couchDb.uri && !!this.settings.couchDb.database;
     await this.rememberSessionCredentials(result.credentials);
     await this.saveSettingsAndReschedule();
@@ -554,6 +626,27 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.log(report.message);
     for (const detail of report.details) {
       this.log(`Runtime check: ${detail}`);
+    }
+  }
+
+  private async runAutomaticRuntimeCheck(): Promise<void> {
+    const smoke = buildRuntimeSmokeCheckReport({
+      manifest: this.manifest,
+      settings: this.getRuntimeSettings(),
+      workerScriptAvailable: !!this.workerScriptUrl()
+    });
+    const capability = buildRuntimeCapabilityReport({
+      manifest: this.manifest,
+      settings: this.getRuntimeSettings(),
+      snapshot: await this.buildRuntimeCapabilitySnapshot()
+    });
+    const ok = smoke.ok && capability.ok;
+    this.log(`Automatic runtime check: ${ok ? "passed" : "needs attention"}. ${smoke.message} ${capability.message}`);
+    for (const detail of [...smoke.details, ...capability.details]) {
+      this.log(`Automatic runtime check: ${detail}`);
+    }
+    if (!ok) {
+      this.setStatus("Runtime check needs attention");
     }
   }
 
@@ -1105,7 +1198,6 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       !this.suppressVaultEventQueue &&
       this.settings.configured &&
       this.settings.syncOnSave &&
-      !path.startsWith(`${this.app.vault.configDir}/`) &&
       (deleted || modifiedAt === 0 || modifiedAt >= this.vaultEventCutoffMs)
     );
   }
@@ -1356,10 +1448,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!(file instanceof TFile)) {
       return undefined;
     }
-    if (file.path.startsWith(this.app.vault.configDir + "/")) {
-      return undefined;
-    }
-    const content = file.extension.toLowerCase() === "md"
+    const content = this.shouldReadFileAsText(file)
       ? await this.app.vault.read(file)
       : await this.app.vault.readBinary(file);
     return {
@@ -1369,6 +1458,23 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       mtime: file.stat.mtime,
       size: file.stat.size
     };
+  }
+
+  private shouldReadFileAsText(file: TFile): boolean {
+    return new Set([
+      "md",
+      "txt",
+      "json",
+      "canvas",
+      "css",
+      "js",
+      "ts",
+      "yml",
+      "yaml",
+      "csv",
+      "html",
+      "xml"
+    ]).has(file.extension.toLowerCase());
   }
 
   private async buildLocalPushBundle(snapshot: LocalFileSnapshot, options: LiveSyncBuildOptions) {

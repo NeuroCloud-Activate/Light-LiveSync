@@ -38,6 +38,8 @@ export type LightweightLiveSyncSettings = {
   e2eeAlgorithm: string;
   useDynamicIterationCount: boolean;
   credentialStore: EncryptedCredentialStore | null;
+  autoUnlockCredentials: boolean;
+  credentialUnlockKey: string;
   keepUnlockedDuringSession: boolean;
   usePathObfuscation: boolean;
   hashAlgorithm: string;
@@ -56,6 +58,7 @@ export type LightweightLiveSyncSettings = {
   maxStorageApplyConcurrency: number;
   maxChunkFetchConcurrency: number;
   showAdvancedSettings: boolean;
+  settingsTab: "sync" | "activity" | "advanced";
   previewExportFolder: string;
   stagingApplyFolder: string;
   conflictFolder: string;
@@ -198,6 +201,8 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
   e2eeAlgorithm: "v2",
   useDynamicIterationCount: false,
   credentialStore: null,
+  autoUnlockCredentials: true,
+  credentialUnlockKey: "",
   keepUnlockedDuringSession: true,
   usePathObfuscation: true,
   hashAlgorithm: "xxhash64",
@@ -207,7 +212,7 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
   periodicSync: true,
   useBackgroundWorker: true,
   vaultChangeBatchWindowSec: 60,
-  maxPushChangesPerSync: 4,
+  maxPushChangesPerSync: 1000,
   failedPushRetryBaseSec: 60,
   failedPushRetryMaxSec: 900,
   syncFailureCooldownSec: 120,
@@ -216,6 +221,7 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
   maxStorageApplyConcurrency: 1,
   maxChunkFetchConcurrency: 8,
   showAdvancedSettings: false,
+  settingsTab: "sync",
   previewExportFolder: "",
   stagingApplyFolder: "",
   conflictFolder: "",
@@ -313,10 +319,19 @@ export function normaliseCouchDbUri(uri: string): string {
   if (!trimmed) {
     return "";
   }
-  if (/^https?:\/\//i.test(trimmed)) {
-    return trimmed.toLowerCase();
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  try {
+    const parsed = new URL(withScheme);
+    parsed.protocol = parsed.protocol.toLowerCase();
+    parsed.hostname = parsed.hostname.toLowerCase();
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    if (/^https?:\/\//i.test(trimmed)) {
+      return trimmed.replace(/\/+$/, "");
+    }
+    return `http://${trimmed.replace(/\/+$/, "")}`;
   }
-  return `http://${trimmed}`.toLowerCase();
 }
 
 export function normaliseDatabaseName(database: string): string {

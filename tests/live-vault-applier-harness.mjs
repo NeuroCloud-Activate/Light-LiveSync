@@ -113,7 +113,7 @@ assert.equal(deleteResult.conflicted, 0);
 assert.equal(vault.files.has("notes/a.md"), false);
 assert.equal([...vault.files.values()].includes("local\nremote"), true);
 
-const protectedResult = await applyReadyPreviewsToLiveVault(
+const configResult = await applyReadyPreviewsToLiveVault(
   vault,
   [
     {
@@ -133,8 +133,9 @@ const protectedResult = await applyReadyPreviewsToLiveVault(
   }
 );
 
-assert.equal(protectedResult.skipped, 1);
-assert.equal(vault.files.has(".obsidian/app.json"), false);
+assert.equal(configResult.applied, 1);
+assert.equal(configResult.skipped, 0);
+assert.equal(vault.files.get(".obsidian/app.json"), "{}");
 
 const binary = new Uint8Array([1, 2, 3, 4]).buffer;
 let applyYields = 0;
@@ -170,6 +171,7 @@ console.log(JSON.stringify({
   merged: writeResult.merged,
   backups: writeResult.backedUp + deleteResult.backedUp,
   conflicts: writeResult.conflicted + deleteResult.conflicted,
+  configSynced: vault.files.get(".obsidian/app.json") === "{}",
   binary: true,
   applyYields
 }, null, 2));

@@ -53,7 +53,7 @@ export class ServerCredentialsModal extends Modal {
 
     new Setting(contentEl)
       .setName("Credential unlock passphrase")
-      .setDesc("Local passphrase used to protect the saved credentials on this device. You enter it again after restarting Obsidian.")
+      .setDesc("Optional. Leave blank to let this device unlock sync automatically on app start. Use a passphrase only if automatic credential unlock is turned off.")
       .addText((text) => {
         text.inputEl.type = "password";
         text.onChange((value) => {

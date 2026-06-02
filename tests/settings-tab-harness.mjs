@@ -56,8 +56,7 @@ function render(settingsPatch) {
     promptForServerCredentials() {},
     initializeRemoteSyncParameters() {},
     verifyConnectionNow() {},
-    runRuntimeSmokeCheck() {},
-    runRuntimeCapabilityCheck() {},
+    setAutoUnlockCredentials() {},
     syncNow() {},
     applyPullToVault() {},
     previewQueuedPull() {},
@@ -87,16 +86,17 @@ assert.match(unconfigured, /Recommended next step/);
 assert.match(unconfigured, /Connect this vault/);
 assert.match(unconfigured, /Connect CouchDB/);
 assert.match(unconfigured, /A low-noise vault sync setup/);
-assert.match(unconfigured, /Not connected yet/);
+assert.match(unconfigured, /Sync activity/);
+assert.match(unconfigured, /Advanced/);
 assert.match(unconfigured, /Connection check/);
 assert.match(unconfigured, /without syncing vault files/);
 assert.match(unconfigured, /Add another device/);
 assert.match(unconfigured, /Generate URI/);
-assert.match(unconfigured, /Runtime check/);
-assert.match(unconfigured, /Run check/);
-assert.match(unconfigured, /Check device APIs/);
-assert.match(unconfigured, /without syncing files/);
-assert.match(unconfigured, /Show advanced settings/);
+assert.doesNotMatch(unconfigured, /Runtime check/);
+assert.doesNotMatch(unconfigured, /Run check/);
+assert.doesNotMatch(unconfigured, /Check device APIs/);
+assert.doesNotMatch(unconfigured, /Safety/);
+assert.doesNotMatch(unconfigured, /Show advanced settings/);
 assert.doesNotMatch(unconfigured, /Sync failure cooldown/);
 assert.doesNotMatch(unconfigured, /Custom request headers/);
 
@@ -127,7 +127,6 @@ const firstRun = render({
 assert.match(firstRun, /Check the connection/);
 assert.match(firstRun, /Check connection/);
 assert.match(firstRun, /before syncing files/);
-assert.match(firstRun, /Ready to check the server/);
 
 const failed = render({
   configured: true,
@@ -196,8 +195,8 @@ assert.match(pendingApply, /Remote changes are ready/);
 assert.match(pendingApply, /Apply next/);
 assert.match(pendingApply, /automatically and backups are created first/);
 
-const advanced = render({
-  showAdvancedSettings: true,
+const activity = render({
+  settingsTab: "activity",
   configured: true,
   couchDb: {
     uri: "http://example.com:5984",
@@ -228,22 +227,39 @@ const advanced = render({
     }
   }
 });
+assert.match(activity, /Sync activity/);
+assert.match(activity, /Remote database/);
+assert.match(activity, /Last sync workload/);
+assert.match(activity, /Uploaded 1 file \(191 B read locally, 1 chunk doc built\)/);
+assert.doesNotMatch(activity, /Advanced sync tuning/);
+
+const advanced = render({
+  settingsTab: "advanced",
+  configured: true,
+  couchDb: {
+    uri: "http://example.com:5984",
+    database: "vault",
+    username: "user",
+    password: "password"
+  },
+  passphrase: "secret"
+});
 assert.match(advanced, /Advanced sync tuning/);
+assert.match(advanced, /Unlock automatically on this device/);
 assert.match(advanced, /Sync failure cooldown/);
 assert.match(advanced, /Manual Sync now can still run immediately/);
 assert.match(advanced, /Custom request headers/);
-assert.match(advanced, /Remote database/);
-assert.match(advanced, /Last sync workload/);
-assert.match(advanced, /Uploaded 1 file \(191 B read locally, 1 chunk doc built\)/);
+assert.doesNotMatch(advanced, /Remote database/);
 
 console.log(JSON.stringify({
   ok: true,
-  renderedStates: ["unconfigured", "locked", "firstRun", "failed", "additionalMissingParameters", "pendingApply", "advanced"],
+  renderedStates: ["unconfigured", "locked", "firstRun", "failed", "additionalMissingParameters", "pendingApply", "activity", "advanced"],
   hasRecommendedNextStep: /Recommended next step/.test(unconfigured),
   hasFriendlyFailure: /CouchDB could not be reached/.test(failed),
   hasAddDeviceUriAction: /Generate URI/.test(unconfigured),
   additionalDeviceDoesNotOfferInitialize: !/Initialize remote/.test(additionalMissingParameters),
   hasAutomaticApplyGuidance: /automatically and backups are created first/.test(pendingApply),
   hidesAdvancedByDefault: !/Sync failure cooldown/.test(unconfigured),
+  hasActivityTab: /Last sync workload/.test(activity),
   showsAdvancedOnRequest: /Sync failure cooldown/.test(advanced)
 }, null, 2));

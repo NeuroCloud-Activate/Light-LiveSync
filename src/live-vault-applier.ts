@@ -67,7 +67,7 @@ function folderOf(path: string): string {
 }
 
 function isProtectedTarget(path: string, configDir: string): boolean {
-  return path.startsWith(`${configDir}/`) || path === configDir || path.startsWith(".trash/");
+  return path === configDir || path.startsWith(".trash/");
 }
 
 async function ensureFolder(adapter: DataAdapter, folderPath: string): Promise<void> {

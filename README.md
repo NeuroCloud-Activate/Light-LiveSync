@@ -10,6 +10,8 @@ It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmr
 - Keeps compatibility with the familiar `obsidian://setuplivesync?settings=...` setup URI flow.
 - Requires end-to-end encryption by default.
 - Batches edits for 60 seconds by default so rapid typing does not spam the server.
+- Restores saved credentials automatically on app start so mobile sync can run without a repeated unlock prompt.
+- Syncs vault configuration and plugin data along with notes.
 - Uses periodic sync as a fallback when mobile backgrounding or missed file events get in the way.
 - Automatically merges ordinary text edits and keeps recovery backups.
 - Keeps the status UI calm, small, and out of your way.
@@ -44,6 +46,7 @@ Light-LiveSync keeps the same CouchDB-style backend approach used by Self-hosted
 It supports:
 
 - CouchDB server URL, database, username, password, and optional custom headers.
+- Plain IP or host entries are cleaned up automatically by adding `http://`; HTTPS domains stay HTTPS.
 - Existing Self-hosted LiveSync setup URI imports.
 - In-plugin direct setup using the same familiar fields: `hostname`, `database`, `passphrase`, `username`, and `password`.
 - Add-device setup URI generation from an already configured first device.
@@ -88,7 +91,7 @@ Security is a core part of the design, not an advanced mode.
 
 - E2EE is required by default.
 - Raw CouchDB passwords and raw E2EE passphrases are blanked before settings are saved.
-- Saved credentials are stored in an encrypted local credential store.
+- Saved credentials are stored in an encrypted local credential store and can unlock automatically on the same device.
 - Synced note content is encrypted before it reaches CouchDB.
 - Path obfuscation is enabled by default.
 - Add-device setup URIs are encrypted and should be treated like temporary invite codes.
@@ -110,7 +113,7 @@ The plugin is optimized around minimal work and minimal data movement.
 - Edits batch for 60 seconds by default.
 - Multiple edits to the same file collapse into one queued push.
 - Unchanged saves are skipped after a matching upload fingerprint.
-- Each sync uploads a bounded number of local changes.
+- Each sync can upload a large batch of changed files by default, which helps first syncs and full-vault updates finish quickly.
 - Large work yields back to Obsidian so the app can stay responsive.
 - A background worker is used when available, with a cooperative main-thread fallback.
 - Pulled CouchDB changes are cached locally in small batches.
@@ -148,8 +151,6 @@ npm run check
 
 `npm test` covers setup URI and QR compatibility, direct CouchDB setup behavior, connection role checks, encrypted credential handling, session cache safety, desktop/mobile runtime reporting, evidence report redaction, scheduler backoff, sync batching, worker fallback, reconstruction, text merge, status presentation, and bundle shape.
 
-The GitHub Actions workflow runs the same `npm run check` gate for pushes and pull requests.
-
 Build and verify a release folder plus zip:
 
 ```sh
@@ -167,4 +168,4 @@ Release files are:
 
 The plugin is built to load on Obsidian desktop and mobile, but real mobile sync should still be tested on a real iOS or Android device before you rely on it everywhere.
 
-For a practical mobile check, install the release build on the device, import the setup URI, unlock with the shared E2EE passphrase, create and edit a few notes, sync in both directions, and confirm the status settles without freezes or repeated large retries. Record only non-secret observations: device type, Obsidian version, plugin version, connection type, sync result, and whether queues returned to zero.
+For a practical mobile check, install the release build on the device, import the setup URI, create and edit a few notes, sync in both directions, close and reopen the app, and confirm sync resumes without a repeated unlock prompt. Record only non-secret observations: device type, Obsidian version, plugin version, connection type, sync result, and whether queues returned to zero.

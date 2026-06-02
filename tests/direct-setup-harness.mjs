@@ -6,7 +6,7 @@ import {
   settingsFromDirectCouchDbSetup,
   validateDirectCouchDbSetupInput
 } from "../src/direct-setup.ts";
-import { credentialPayloadFromSettings, settingsForDisk } from "../src/settings.ts";
+import { credentialPayloadFromSettings, normaliseCouchDbUri, settingsForDisk } from "../src/settings.ts";
 
 const blankModalState = {
   hostname: "",
@@ -68,6 +68,10 @@ assert.equal(projected.usePathObfuscation, true);
 assert.equal(projected.syncOnSave, true);
 assert.equal(projected.periodicSync, true);
 assert.equal(projected.vaultChangeBatchWindowSec, 60);
+assert.equal(projected.maxPushChangesPerSync, 1000);
+assert.equal(projected.autoUnlockCredentials, true);
+assert.equal(normaliseCouchDbUri("203.0.113.10:5984"), "http://203.0.113.10:5984");
+assert.equal(normaliseCouchDbUri("HTTPS://Sync.Example.COM:443/couch/"), "https://sync.example.com/couch");
 assert.equal(disk.couchDb.password, "");
 assert.equal(disk.passphrase, "");
 assert.equal(unlocked.couchDbPassword, "couch-password");
@@ -82,6 +86,7 @@ console.log(JSON.stringify({
   database: projected.couchDb.database,
   deviceSetupRole: projected.deviceSetupRole,
   e2eeRequired: projected.requireE2EE,
+  maxPushChangesPerSync: projected.maxPushChangesPerSync,
   encryptedCredentialStore: !!disk.credentialStore,
   diskSecretsBlanked: disk.couchDb.password === "" && disk.passphrase === "",
   readsSubmittedInputValues: fromElements.hostname === "LiveHost.EXAMPLE:5984",

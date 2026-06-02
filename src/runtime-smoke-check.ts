@@ -31,6 +31,9 @@ export function buildRuntimeSmokeCheckReport(input: RuntimeSmokeCheckInput): Run
     settings.deviceSetupRole === "additional-device"
       ? "Device role: additional device; connection checks verify the existing remote only."
       : "Device role: initial device; connection checks may create or initialize the remote.",
+    settings.autoUnlockCredentials
+      ? "Automatic device unlock is enabled for app-start sync."
+      : "Automatic device unlock is disabled; sync waits for manual credential unlock after app start.",
     settings.keepUnlockedDuringSession
       ? "Session unlock cache is enabled for renderer-refresh recovery."
       : "Session unlock cache is disabled; unlock is memory-only.",

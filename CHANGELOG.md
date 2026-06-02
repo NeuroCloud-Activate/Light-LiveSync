@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+- Restores saved sync credentials automatically on app start for smoother mobile use.
+- Normalizes CouchDB addresses more carefully while preserving HTTPS domains.
+- Raises the default upload batch size for full-vault first syncs.
+- Allows vault configuration and plugin data files to sync.
+- Runs runtime checks automatically and simplifies the settings screen into sync, activity, and advanced pages.
+
 ## 0.1.0
 
 - Initial Light-LiveSync release.
