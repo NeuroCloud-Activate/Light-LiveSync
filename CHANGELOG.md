@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.33
+
+- Clarifies sync-finish wording so local pending uploads/apply items are separate from remote CouchDB catch-up pages.
+- Runs automatic continuation passes immediately after a successful progress-making pass, so new-device/full catch-up pages do not wait behind the normal sync throttle.
+- Adds harness coverage for full remote pull pages and immediate continuation despite the normal minimum sync interval.
+
 ## 0.1.32
 
 - Makes idle periodic polling lighter by reusing the saved, already-validated CouchDB setup and pulling from the local checkpoint directly when there are no local uploads waiting.

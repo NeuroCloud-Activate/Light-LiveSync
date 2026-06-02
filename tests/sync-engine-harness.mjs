@@ -706,6 +706,50 @@ assert.equal(pullCheckpointOutcome.ok, true);
 assert.equal((await pullCheckpointStore.getSummary()).lastRemoteSeq, "server-checkpoint-after-window");
 assert.deepEqual(pullCheckpointStore.checkpoints, ["server-checkpoint-after-window"]);
 
+const fullRemotePageStore = new PullBatchStore();
+const fullRemotePageChanges = Array.from({ length: 250 }, (_, index) => {
+  const seq = String(index + 1);
+  return {
+    id: `remote-page-${seq}.md`,
+    seq,
+    doc: { _id: `remote-page-${seq}.md`, _rev: `1-${seq}`, type: "plain", path: `remote-page-${seq}.md`, children: [], mtime: 1, ctime: 1, size: 0 }
+  };
+});
+const fullRemotePageEngine = new LightweightSyncEngine({
+  getSettings: () => ({
+    ...settings,
+    autoApplyPull: false
+  }),
+  updateRemoteInspection: async () => {},
+  updateLocalQueue: async () => {},
+  getLocalStore: () => fullRemotePageStore,
+  readLocalFileSnapshot: async () => undefined,
+  buildLocalPushBundle: async () => {
+    throw new Error("Remote-page wording check should not build local bundles.");
+  },
+  applyPulledChanges: async () => {
+    throw new Error("Auto apply is disabled for this remote-page wording check.");
+  },
+  createRemoteClient: () => ({
+    ...fakeClient,
+    async inspect() {
+      return {
+        ...await fakeClient.inspect(),
+        updateSequence: "remote-end-after-this-page"
+      };
+    },
+    async getChangesSince() {
+      return { lastSeq: "250", changes: fullRemotePageChanges };
+    }
+  }),
+  log: () => {}
+});
+const fullRemotePageOutcome = await fullRemotePageEngine.sync("manual");
+assert.equal(fullRemotePageOutcome.ok, true);
+assert.equal(fullRemotePageOutcome.continueSync, true);
+assert.match(fullRemotePageOutcome.message, /Still waiting locally: 0 uploads, 250 remote apply items/);
+assert.match(fullRemotePageOutcome.message, /Remote catch-up is still paging through CouchDB/);
+
 const lightweightPeriodicStore = new MemoryStore([]);
 let lightweightPeriodicInspectCalls = 0;
 let lightweightPeriodicPullSince = "";

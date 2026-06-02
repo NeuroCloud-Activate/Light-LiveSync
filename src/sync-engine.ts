@@ -522,12 +522,16 @@ export class LightweightSyncEngine {
       ? applied.applied + applied.merged + applied.deleted + applied.skipped > 0
       : false;
     const continueSync = (pendingUpload > 0 && localUploadProgress) || moreRemoteLikely || (pendingApply > 0 && appliedProgress);
+    const localQueue = `Still waiting locally: ${pendingUpload} upload${pendingUpload === 1 ? "" : "s"}, ${pendingApply} remote apply item${pendingApply === 1 ? "" : "s"}.`;
+    const remoteCatchUp = moreRemoteLikely
+      ? " Remote catch-up is still paging through CouchDB because the last pull filled the 250-document page; the next pass will request the next page."
+      : "";
     const nextPass = continueSync
       ? " More sync work remains, so another pass will continue automatically."
       : "";
     return {
       ok: true,
-      message: `Uploaded ${pushed.pushed}, deleted ${pushed.deleted}, skipped ${pushed.skipped} unchanged file${pushed.skipped === 1 ? "" : "s"}. Version history saved ${pushed.versionsSaved}, pruned ${pushed.versionsPruned}, failed ${pushed.versionsFailed}. Downloaded ${pulled.pulledCount} remote document change${pulled.pulledCount === 1 ? "" : "s"}${pulled.reachedRemoteEnd ? " and reached the current CouchDB checkpoint" : ""}.${applied ? ` Applied ${applied.applied + applied.merged + applied.deleted}, skipped ${applied.skipped}, waiting ${applied.waiting}, failed ${applied.failed}.` : ""} Still waiting: ${pendingUpload} local upload${pendingUpload === 1 ? "" : "s"}, ${pendingApply} remote apply item${pendingApply === 1 ? "" : "s"}.${moreRemoteLikely ? " More remote document changes may still be waiting." : ""}${nextPass}`,
+      message: `Uploaded ${pushed.pushed}, deleted ${pushed.deleted}, skipped ${pushed.skipped} unchanged file${pushed.skipped === 1 ? "" : "s"}. Version history saved ${pushed.versionsSaved}, pruned ${pushed.versionsPruned}, failed ${pushed.versionsFailed}. Downloaded ${pulled.pulledCount} remote document change${pulled.pulledCount === 1 ? "" : "s"}${pulled.reachedRemoteEnd ? " and reached the current CouchDB checkpoint" : ""}.${applied ? ` Applied ${applied.applied + applied.merged + applied.deleted}, skipped ${applied.skipped}, waiting ${applied.waiting}, failed ${applied.failed}.` : ""} ${localQueue}${remoteCatchUp}${nextPass}`,
       metrics,
       continueSync
     };

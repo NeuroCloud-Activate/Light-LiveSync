@@ -84,6 +84,7 @@ export class SyncScheduler {
     while (this.queuedReason) {
       const reason = this.queuedReason;
       this.queuedReason = undefined;
+      let continueWithoutDelay = false;
       this.running = true;
       this.lastStartedAt = Date.now();
       const startedAt = this.lastStartedAt;
@@ -100,6 +101,7 @@ export class SyncScheduler {
           this.host.setStatus("Syncing");
           this.host.log("More sync work is still queued, so Light-LiveSync will continue with another sync pass automatically.");
           this.queuedReason = reason;
+          continueWithoutDelay = true;
         } else {
           this.host.setStatus(result.message);
         }
@@ -115,7 +117,7 @@ export class SyncScheduler {
       }
 
       if (this.queuedReason) {
-        const delay = this.delayUntilNextAllowedRun(this.queuedReason);
+        const delay = continueWithoutDelay ? 0 : this.delayUntilNextAllowedRun(this.queuedReason);
         if (delay > 0) {
           await new Promise((resolve) => window.setTimeout(resolve, delay));
         }

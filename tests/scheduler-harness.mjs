@@ -96,7 +96,7 @@ const continuationScheduler = new SyncScheduler(
     }
   },
   {
-    getMinimumIntervalMs: () => 0,
+    getMinimumIntervalMs: () => 1000,
     log: (message) => continueLogs.push(message),
     setStatus: () => {}
   }
