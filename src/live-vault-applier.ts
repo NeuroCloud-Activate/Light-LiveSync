@@ -156,6 +156,66 @@ function contentsEqual(current: string | ArrayBuffer, incoming: string | ArrayBu
   return isArrayBuffer(current) && isArrayBuffer(incoming) && buffersEqual(current, incoming);
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isEmptySyncValue(value: unknown): boolean {
+  return value === undefined ||
+    value === null ||
+    value === "" ||
+    (Array.isArray(value) && value.length === 0);
+}
+
+function isProtectedSettingsKey(key: string): boolean {
+  return /api[-_ ]?key|token|secret|password|passphrase|credential|auth|bearer|access[-_ ]?key|refresh[-_ ]?token|command/i.test(key);
+}
+
+function shouldUseJsonSettingsMerge(path: string, configDir: string): boolean {
+  const normalizedConfigDir = configDir.replace(/\/+$/, "");
+  const normalizedPath = path.replace(/\\/g, "/");
+  return normalizedPath.startsWith(`${normalizedConfigDir}/`) && normalizedPath.endsWith(".json");
+}
+
+function mergeJsonSettingsValue(current: unknown, incoming: unknown, keyPath: string[] = []): unknown {
+  const key = keyPath.at(-1) ?? "";
+  if (isProtectedSettingsKey(key) && !isEmptySyncValue(current) && isEmptySyncValue(incoming)) {
+    return current;
+  }
+
+  if (isPlainObject(current) && isPlainObject(incoming)) {
+    const merged: Record<string, unknown> = { ...current };
+    for (const [childKey, incomingValue] of Object.entries(incoming)) {
+      if (Object.prototype.hasOwnProperty.call(current, childKey)) {
+        merged[childKey] = mergeJsonSettingsValue(current[childKey], incomingValue, [...keyPath, childKey]);
+      } else {
+        merged[childKey] = incomingValue;
+      }
+    }
+    return merged;
+  }
+
+  if (Array.isArray(current) && Array.isArray(incoming) && current.length > 0 && incoming.length === 0 && isProtectedSettingsKey(key)) {
+    return current;
+  }
+
+  return incoming;
+}
+
+function maybeMergeJsonSettings(path: string, configDir: string, current: string, incoming: string): string | undefined {
+  if (!shouldUseJsonSettingsMerge(path, configDir)) {
+    return undefined;
+  }
+  try {
+    const currentJson = JSON.parse(current) as unknown;
+    const incomingJson = JSON.parse(incoming) as unknown;
+    const merged = mergeJsonSettingsValue(currentJson, incomingJson);
+    return `${JSON.stringify(merged, null, 2)}\n`;
+  } catch {
+    return undefined;
+  }
+}
+
 async function ensureParentFolder(adapter: DataAdapter, path: string): Promise<void> {
   const folder = folderOf(path);
   if (folder) {
@@ -200,6 +260,7 @@ async function applyReadyPreview(
   vault: LiveVaultTarget,
   preview: ReconstructedDocumentPreview,
   targetPath: string,
+  configDir: string,
   result: MutableLiveVaultApplyResult
 ): Promise<void> {
   if (!hasWritableContent(preview)) {
@@ -218,7 +279,8 @@ async function applyReadyPreview(
       return;
     }
     if (typeof current === "string" && typeof preview.content === "string") {
-      const merged = automaticTextMerge(current, preview.content);
+      const merged = maybeMergeJsonSettings(targetPath, configDir, current, preview.content) ??
+        automaticTextMerge(current, preview.content);
       if (merged !== current) {
         await backupExistingContent(vault, targetPath, result.conflictFolder, false);
         await writeContent(vault, targetPath, merged);
@@ -274,7 +336,7 @@ async function applyPreview(
     await applyDeletedPreview(vault, preview, targetPath, result);
     return;
   }
-  await applyReadyPreview(vault, preview, targetPath, result);
+  await applyReadyPreview(vault, preview, targetPath, options.configDir, result);
 }
 
 export async function applyReadyPreviewsToLiveVault(

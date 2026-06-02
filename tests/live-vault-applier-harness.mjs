@@ -188,7 +188,56 @@ const adapterOnlyResult = await applyReadyPreviewsToLiveVault(
 assert.equal(adapterOnlyResult.applied, 0);
 assert.equal(adapterOnlyResult.merged, 1);
 assert.equal(adapterOnlyResult.failed, 0);
-assert.equal(vault.files.get(".obsidian/plugins/other-plugin/data.json"), "{\"old\":true}\n{\"new\":true}");
+assert.deepEqual(JSON.parse(vault.files.get(".obsidian/plugins/other-plugin/data.json")), { old: true, new: true });
+
+vault.files.set(".obsidian/plugins/ai-helper/data.json", JSON.stringify({
+  apiKey: "local-api-key",
+  token: "local-token",
+  commands: ["local command"],
+  enabled: false,
+  nested: {
+    accessToken: "nested-local-token",
+    mode: "old"
+  }
+}));
+const protectedSettingsResult = await applyReadyPreviewsToLiveVault(
+  vault,
+  [
+    {
+      id: "doc-plugin-settings-secret",
+      rev: "1-plugin-settings-secret",
+      path: ".obsidian/plugins/ai-helper/data.json",
+      status: "ready",
+      contentType: "text",
+      chunkCount: 1,
+      byteLength: 120,
+      content: JSON.stringify({
+        apiKey: "",
+        token: null,
+        commands: [],
+        enabled: true,
+        nested: {
+          accessToken: "",
+          mode: "new"
+        }
+      })
+    }
+  ],
+  {
+    configDir: ".obsidian",
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
+  }
+);
+const protectedSettings = JSON.parse(vault.files.get(".obsidian/plugins/ai-helper/data.json"));
+
+assert.equal(protectedSettingsResult.applied, 0);
+assert.equal(protectedSettingsResult.merged, 1);
+assert.equal(protectedSettings.apiKey, "local-api-key");
+assert.equal(protectedSettings.token, "local-token");
+assert.deepEqual(protectedSettings.commands, ["local command"]);
+assert.equal(protectedSettings.enabled, true);
+assert.equal(protectedSettings.nested.accessToken, "nested-local-token");
+assert.equal(protectedSettings.nested.mode, "new");
 
 vault.files.set("notes/delete-line.md", "A\nB\nC\n");
 const remoteTextDeleteResult = await applyReadyPreviewsToLiveVault(

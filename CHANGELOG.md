@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.35
+
+- Applies Obsidian JSON settings files with a structured JSON merge instead of line-based text merging.
+- Preserves non-empty local API keys, tokens, passwords, credentials, auth fields, and command lists when another device sends blank values.
+- Keeps normal JSON setting updates flowing across devices, so plugin settings still sync without wiping local secrets or custom command lists.
+
 ## 0.1.34
 
 - Treats startup catch-up pages with an existing CouchDB checkpoint like lightweight checkpoint pulls, avoiding repeated full server inspection during new-device catch-up.
