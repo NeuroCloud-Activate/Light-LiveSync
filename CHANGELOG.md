@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.24
+
+- Embeds the sync worker source inside `main.js` so mobile installs can start the worker even when `sync-worker.js` is not readable from the plugin folder.
+- Uses the embedded worker source as a quiet fallback before falling back to the cooperative main-thread push builder.
+- Updates mobile and release checks to verify the embedded worker fallback remains present.
+
 ## 0.1.23
 
 - Repairs pending remote files whose chunk records are missing from the local apply cache by fetching those referenced chunks directly from CouchDB.

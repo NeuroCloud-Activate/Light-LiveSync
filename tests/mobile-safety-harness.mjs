@@ -93,6 +93,8 @@ if (existsSync("main.js")) {
   assert.deepEqual([...new Set(mainRequires)], ["obsidian"]);
   assert.equal(/require\("electron"\)/.test(main), false);
   assert.equal(/require\("node:/.test(main), false);
+  assert.equal(main.includes("build-push-bundle"), true);
+  assert.equal(main.includes("Background worker file was not found; using the built-in worker source instead."), true);
 }
 
 if (existsSync("sync-worker.js")) {

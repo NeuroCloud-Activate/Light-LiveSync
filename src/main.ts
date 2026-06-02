@@ -40,6 +40,7 @@ import {
 import { SyncScheduler } from "./scheduler";
 import { LightweightSyncEngine, type SyncOutcome, type SyncProgress, type SyncRemoteClient } from "./sync-engine";
 import { OptionalSyncWorkerClient } from "./sync-worker-client";
+import { EMBEDDED_SYNC_WORKER_SOURCE } from "./embedded-sync-worker-source";
 import { CalmStatusPresenter } from "./status-presenter";
 import type { LiveSyncBuildOptions, LocalFileSnapshot } from "./livesync-document-builder";
 import { CouchDbClient, CouchDbClientError, type RemoteInspection } from "./couchdb-client";
@@ -830,7 +831,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     const report = buildRuntimeSmokeCheckReport({
       manifest: this.manifest,
       settings: this.getRuntimeSettings(),
-      workerScriptAvailable: !!this.workerScriptUrl()
+      workerScriptAvailable: this.workerSourceAvailable()
     });
     this.setStatus(report.ok ? "Runtime check passed" : "Runtime check needs attention");
     new Notice(report.message);
@@ -844,7 +845,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     const smoke = buildRuntimeSmokeCheckReport({
       manifest: this.manifest,
       settings: this.getRuntimeSettings(),
-      workerScriptAvailable: !!this.workerScriptUrl()
+      workerScriptAvailable: this.workerSourceAvailable()
     });
     const capability = buildRuntimeCapabilityReport({
       manifest: this.manifest,
@@ -887,7 +888,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     const smoke = buildRuntimeSmokeCheckReport({
       manifest: this.manifest,
       settings: this.getRuntimeSettings(),
-      workerScriptAvailable: !!this.workerScriptUrl()
+      workerScriptAvailable: this.workerSourceAvailable()
     });
     const generatedAt = Date.now();
     const content = formatRuntimeEvidenceReport({
@@ -928,7 +929,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       textCodec: typeof globalThis.TextEncoder === "function" && typeof globalThis.TextDecoder === "function",
       base64Codec: typeof globalThis.btoa === "function" && typeof globalThis.atob === "function",
       workerConstructor: typeof globalThis.Worker === "function",
-      workerScriptAvailable: !!this.workerScriptUrl(),
+      workerScriptAvailable: this.workerSourceAvailable(),
       obsidianRequestApi: typeof requestUrl === "function"
     };
   }
@@ -1938,18 +1939,27 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     return adapter.getResourcePath(`${this.pluginInstallDir()}/sync-worker.js`);
   }
 
+  private workerSourceAvailable(): boolean {
+    return !!this.workerScriptUrl() || EMBEDDED_SYNC_WORKER_SOURCE.length > 0;
+  }
+
   private async workerScriptSource(): Promise<string | undefined> {
     if (this.workerScriptSourceCache) {
       return this.workerScriptSourceCache;
     }
     const adapter = this.app.vault.adapter as VaultListAdapter;
     if (typeof adapter.read !== "function") {
-      return undefined;
+      return EMBEDDED_SYNC_WORKER_SOURCE || undefined;
     }
     try {
       this.workerScriptSourceCache = await adapter.read(`${this.pluginInstallDir()}/sync-worker.js`);
       return this.workerScriptSourceCache;
     } catch (error) {
+      if (EMBEDDED_SYNC_WORKER_SOURCE) {
+        this.workerScriptSourceCache = EMBEDDED_SYNC_WORKER_SOURCE;
+        this.log("Background worker file was not found; using the built-in worker source instead.");
+        return this.workerScriptSourceCache;
+      }
       this.log(`Background worker source could not be read from the plugin folder. ${error instanceof Error ? error.message : String(error)}`);
       return undefined;
     }
