@@ -368,7 +368,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.renderCustomHeaders(containerEl);
     new Setting(containerEl)
       .setName("Use request API")
-      .setDesc("Leave off for the standard fetch transport. Turn on only if your platform, proxy, or CORS setup needs the app request handling mode.")
+      .setDesc("Leave on for the mobile-safe app request transport. Turn off only if a specific server or proxy setup works better with standard fetch.")
       .addToggle((toggle) => {
         toggle.setValue(this.plugin.settings.couchDb.useRequestApi).onChange(async (value) => {
           this.plugin.settings.couchDb.useRequestApi = value;

@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, normalizePath, requestUrl } from "obsidian";
+import { Notice, Platform, Plugin, TFile, normalizePath, requestUrl } from "obsidian";
 import { decryptCredentialPayload, encryptCredentialPayload } from "./credential-store";
 import { DocumentReconstructor, type ReconstructionBatchSummary } from "./document-reconstructor";
 import { applyReadyPreviewsToLiveVault, type LiveVaultApplyResult } from "./live-vault-applier";
@@ -255,6 +255,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
     if (loaded?.maxStorageApplyConcurrency === undefined || loaded.maxStorageApplyConcurrency <= 25) {
       this.settings.maxStorageApplyConcurrency = DEFAULT_SETTINGS.maxStorageApplyConcurrency;
+    }
+    if (Platform.isMobile && !this.settings.couchDb.useRequestApi) {
+      this.settings.couchDb.useRequestApi = true;
     }
   }
 

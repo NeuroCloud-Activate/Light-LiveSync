@@ -158,6 +158,10 @@ const fakeClient = {
     putCalls.push({ fileDocument, chunkDocuments });
     return { fileId: fileDocument._id, written: 1, reused: 0, conflicts: 0 };
   },
+  async putLiveSyncBundles(bundles) {
+    putCalls.push({ bundles });
+    return { fileIds: bundles.map((bundle) => bundle.fileDocument._id), written: bundles.length, reused: 0, conflicts: 0 };
+  },
   async getVersionDocumentsForFile() {
     return [];
   },
@@ -201,8 +205,9 @@ const engine = new LightweightSyncEngine({
 const outcome = await engine.sync("vault-change");
 
 assert.equal(outcome.ok, true);
-assert.equal(putCalls.length, 2);
-assert.equal(uiYields, 6);
+assert.equal(putCalls.length, 1);
+assert.equal(putCalls[0].bundles.length, 2);
+assert.equal(uiYields, 8);
 assert.equal(store.pendingPushes.length, 1);
 assert.equal(autoApplyCalls, 1);
 assert.equal((await store.getSummary()).pendingApply, 0);
@@ -253,6 +258,9 @@ const firstUploadClient = {
   },
   async putLiveSyncBundle() {
     return { fileId: "notes/first.md", written: 2, reused: 0, conflicts: 0 };
+  },
+  async putLiveSyncBundles(bundles) {
+    return { fileIds: bundles.map((bundle) => bundle.fileDocument._id), written: 2, reused: 0, conflicts: 0 };
   }
 };
 const firstUploadEngine = new LightweightSyncEngine({
@@ -312,6 +320,9 @@ const automaticFirstClient = {
   },
   async putLiveSyncBundle() {
     return { fileId: "notes/auto.md", written: 2, reused: 0, conflicts: 0 };
+  },
+  async putLiveSyncBundles(bundles) {
+    return { fileIds: bundles.map((bundle) => bundle.fileDocument._id), written: 2, reused: 0, conflicts: 0 };
   }
 };
 const automaticFirstEngine = new LightweightSyncEngine({
@@ -372,6 +383,13 @@ const retryClient = {
     }
     retryPutCalls.push({ fileDocument, chunkDocuments });
     return { fileId: fileDocument._id, written: 1, reused: 0, conflicts: 0 };
+  },
+  async putLiveSyncBundles(bundles) {
+    if (bundles.some((bundle) => bundle.fileDocument._id === "notes/fail.md")) {
+      throw new Error("offline");
+    }
+    retryPutCalls.push({ bundles });
+    return { fileIds: bundles.map((bundle) => bundle.fileDocument._id), written: bundles.length, reused: 0, conflicts: 0 };
   }
 };
 const retryEngine = new LightweightSyncEngine({
@@ -400,13 +418,13 @@ const failedRetry = retryStore.pendingPushes.find((change) => change.path === "n
 
 assert.equal(retryOutcome.ok, true);
 assert.equal(retryPutCalls.length, 1);
-assert.equal(retryPutCalls[0].fileDocument._id, "notes/after.md");
+assert.equal(retryPutCalls[0].bundles[0].fileDocument._id, "notes/after.md");
 assert.equal(retryStore.pendingPushes.some((change) => change.path === "notes/cooling.md"), true);
 assert.equal(failedRetry.attempts, 1);
 assert.ok(failedRetry.nextAttemptAt >= retryStartedAt + 60_000);
 assert.equal(retryOutcome.metrics.pushedFiles, 1);
 assert.equal(retryOutcome.metrics.failedFiles, 1);
-assert.equal(retryOutcome.metrics.localBytesRead, 10);
+assert.equal(retryOutcome.metrics.localBytesRead, 20);
 
 const noOpStore = new MemoryStore([
   { path: "notes/same.md", deleted: false, queuedAt: 1, updatedAt: 1, attempts: 0, nextAttemptAt: 0, lastError: "" }
@@ -440,6 +458,10 @@ const noOpEngine = new LightweightSyncEngine({
       return { lastSeq: "0", changes: [] };
     },
     async putLiveSyncBundle() {
+      noOpPutCalls += 1;
+      throw new Error("No-op push should not write to CouchDB.");
+    },
+    async putLiveSyncBundles() {
       noOpPutCalls += 1;
       throw new Error("No-op push should not write to CouchDB.");
     }
@@ -566,8 +588,8 @@ const pullBatchEngine = new LightweightSyncEngine({
 });
 const pullBatchOutcome = await pullBatchEngine.sync("periodic");
 assert.equal(pullBatchOutcome.ok, true);
-assert.deepEqual(pullBatchStore.cacheBatchSizes, [25, 25, 10]);
-assert.equal(pullBatchYields, 6);
+assert.deepEqual(pullBatchStore.cacheBatchSizes, [50, 10]);
+assert.equal(pullBatchYields, 4);
 assert.equal(pullBatchOutcome.metrics.pulledChanges, 60);
 assert.equal((await pullBatchStore.getSummary()).pendingApply, 60);
 
@@ -644,7 +666,7 @@ console.log(JSON.stringify({
   autoApplyCalls,
   metrics: outcome.metrics,
   retryBackoffSeconds: Math.ceil((failedRetry.nextAttemptAt - retryStartedAt) / 1000),
-  retryDidNotBlockDuePush: retryPutCalls[0].fileDocument._id,
+  retryDidNotBlockDuePush: retryPutCalls[0].bundles[0].fileDocument._id,
   noOpSkippedWithoutNetworkWrite: noOpOutcome.metrics.skippedFiles,
   automaticFirstSyncQueued: automaticFirstQueued,
   automaticFirstSyncPulledOwnUpload: automaticFirstPulled,

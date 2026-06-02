@@ -115,6 +115,7 @@ export type SyncRemoteClient = Pick<
   | "getDocumentsByIds"
   | "deleteLiveSyncDocument"
   | "putLiveSyncBundle"
+  | "putLiveSyncBundles"
   | "getVersionDocumentsForFile"
   | "putVersionDocument"
   | "deleteDocuments"
@@ -136,6 +137,15 @@ type PushBatchOutcome = {
   versionsFailed: number;
 };
 
+type PreparedPush = {
+  path: string;
+  previousAttempts: number;
+  fingerprint: string;
+  bundle: LiveSyncPushBundle;
+  localBytesRead: number;
+  chunkDocsBuilt: number;
+};
+
 type ReadySyncSettings = {
   ok: true;
   settings: LightweightLiveSyncSettings;
@@ -146,10 +156,12 @@ type NotReadySyncSettings = Extract<SyncOutcome, { ok: false }>;
 type PulledRemoteChanges = {
   pulledCount: number;
   summary: LocalStoreSummary;
+  lastSeq: string;
+  reachedRemoteEnd: boolean;
 };
 
-const REMOTE_PULL_LIMIT = 500;
-const REMOTE_CACHE_BATCH_SIZE = 25;
+const REMOTE_PULL_LIMIT = 1000;
+const REMOTE_CACHE_BATCH_SIZE = 50;
 const AUTOMATIC_FULL_VAULT_SCAN_REASONS = new Set<SyncReason>([
   "startup",
   "periodic",
@@ -166,6 +178,24 @@ function failedPushRetryDelayMs(settings: LightweightLiveSyncSettings, attemptsA
 
 function emptySyncMetrics(): RuntimeSyncMetricsState {
   return { ...DEFAULT_RUNTIME_SYNC_METRICS };
+}
+
+function emptyPushOutcome(): PushBatchOutcome {
+  return {
+    pushed: 0,
+    deleted: 0,
+    skipped: 0,
+    failed: 0,
+    remoteDocsWritten: 0,
+    remoteDocsReused: 0,
+    remoteDocsConflicts: 0,
+    localBytesRead: 0,
+    chunkDocsBuilt: 0,
+    versionsSaved: 0,
+    versionsSkipped: 0,
+    versionsPruned: 0,
+    versionsFailed: 0
+  };
 }
 
 function elapsedMs(startedAt: number): number {
@@ -298,13 +328,13 @@ export class LightweightSyncEngine {
     if (await this.skipPullAfterFirstUpload(client, localStore, inspection, pushed)) {
       const summary = await localStore.getSummary();
       await this.host.updateLocalQueue(summary);
-      const pulled = { pulledCount: 0, summary };
+      const pulled = { pulledCount: 0, summary, lastSeq: inspection.updateSequence, reachedRemoteEnd: true };
       this.logSyncResult(reason, inspection.databaseName, pushed, 0);
       return this.syncOutcomeMessage(pushed, pulled, metrics);
     }
 
     const pullStartedAt = Date.now();
-    let pulled = await this.pullRemoteChanges(client, localStore);
+    let pulled = await this.pullRemoteChanges(client, localStore, inspection.updateSequence);
     metrics.pullMs = elapsedMs(pullStartedAt);
     metrics.pulledChanges = pulled.pulledCount;
 
@@ -343,7 +373,8 @@ export class LightweightSyncEngine {
 
   private async pullRemoteChanges(
     client: SyncRemoteClient,
-    localStore: LocalDocumentStore
+    localStore: LocalDocumentStore,
+    remoteEndSeq: string
   ): Promise<PulledRemoteChanges> {
     const checkpoint = await localStore.getCheckpoint();
     this.host.reportProgress?.({ phase: "pull-start", since: checkpoint.lastRemoteSeq });
@@ -378,7 +409,9 @@ export class LightweightSyncEngine {
     });
     return {
       pulledCount: pulled.changes.length,
-      summary
+      summary,
+      lastSeq: pulled.lastSeq,
+      reachedRemoteEnd: pulled.changes.length < REMOTE_PULL_LIMIT || String(pulled.lastSeq) === String(remoteEndSeq)
     };
   }
 
@@ -447,17 +480,18 @@ export class LightweightSyncEngine {
   ): SyncOutcome {
     const pendingUpload = pulled.summary.pendingPush;
     const pendingApply = pulled.summary.pendingApply;
-    const moreRemoteLikely = pulled.pulledCount >= REMOTE_PULL_LIMIT;
+    const moreRemoteLikely = pulled.pulledCount >= REMOTE_PULL_LIMIT && !pulled.reachedRemoteEnd;
+    const localUploadProgress = pushed.pushed + pushed.deleted + pushed.skipped > 0;
     const appliedProgress = applied
       ? applied.applied + applied.merged + applied.deleted + applied.skipped > 0
       : false;
-    const continueSync = pendingUpload > 0 || moreRemoteLikely || (pendingApply > 0 && appliedProgress);
+    const continueSync = (pendingUpload > 0 && localUploadProgress) || moreRemoteLikely || (pendingApply > 0 && appliedProgress);
     const nextPass = continueSync
       ? " More sync work remains, so another pass will continue automatically."
       : "";
     return {
       ok: true,
-      message: `Uploaded ${pushed.pushed}, deleted ${pushed.deleted}, skipped ${pushed.skipped} unchanged file${pushed.skipped === 1 ? "" : "s"}. Version history saved ${pushed.versionsSaved}, pruned ${pushed.versionsPruned}, failed ${pushed.versionsFailed}. Downloaded ${pulled.pulledCount} remote change${pulled.pulledCount === 1 ? "" : "s"}.${applied ? ` Applied ${applied.applied + applied.merged + applied.deleted}, skipped ${applied.skipped}, waiting ${applied.waiting}, failed ${applied.failed}.` : ""} Still waiting: ${pendingUpload} local upload${pendingUpload === 1 ? "" : "s"}, ${pendingApply} remote apply item${pendingApply === 1 ? "" : "s"}.${moreRemoteLikely ? " The remote returned a full batch, so more downloads may still be waiting." : ""}${nextPass}`,
+      message: `Uploaded ${pushed.pushed}, deleted ${pushed.deleted}, skipped ${pushed.skipped} unchanged file${pushed.skipped === 1 ? "" : "s"}. Version history saved ${pushed.versionsSaved}, pruned ${pushed.versionsPruned}, failed ${pushed.versionsFailed}. Downloaded ${pulled.pulledCount} remote document change${pulled.pulledCount === 1 ? "" : "s"}${pulled.reachedRemoteEnd ? " and reached the current CouchDB checkpoint" : ""}.${applied ? ` Applied ${applied.applied + applied.merged + applied.deleted}, skipped ${applied.skipped}, waiting ${applied.waiting}, failed ${applied.failed}.` : ""} Still waiting: ${pendingUpload} local upload${pendingUpload === 1 ? "" : "s"}, ${pendingApply} remote apply item${pendingApply === 1 ? "" : "s"}.${moreRemoteLikely ? " More remote document changes may still be waiting." : ""}${nextPass}`,
       metrics,
       continueSync
     };
@@ -490,6 +524,7 @@ export class LightweightSyncEngine {
     }
 
     const pushStartedAt = Date.now();
+    const prepared: PreparedPush[] = [];
     this.host.reportProgress?.({ phase: "push-start", total: pending.length });
     for (const [index, change] of pending.entries()) {
       this.host.reportProgress?.({
@@ -499,7 +534,9 @@ export class LightweightSyncEngine {
         path: change.path
       });
       await this.host.yieldToUi?.();
-      const single = await this.pushOneLocalChange(client, localStore, settings, change.path, change.deleted, change.attempts);
+      const single = change.deleted
+        ? await this.pushOneLocalChange(client, localStore, settings, change.path, change.deleted, change.attempts)
+        : await this.prepareOneLocalPush(localStore, settings, change.path, change.attempts, prepared);
       await this.host.yieldToUi?.();
       outcome.pushed += single.pushed;
       outcome.deleted += single.deleted;
@@ -527,6 +564,30 @@ export class LightweightSyncEngine {
         startedAt: pushStartedAt
       });
     }
+    if (prepared.length > 0) {
+      const write = await this.writePreparedPushes(client, localStore, settings, prepared);
+      outcome.pushed += write.pushed;
+      outcome.failed += write.failed;
+      outcome.remoteDocsWritten += write.remoteDocsWritten;
+      outcome.remoteDocsReused += write.remoteDocsReused;
+      outcome.remoteDocsConflicts += write.remoteDocsConflicts;
+      outcome.versionsSaved += write.versionsSaved;
+      outcome.versionsSkipped += write.versionsSkipped;
+      outcome.versionsPruned += write.versionsPruned;
+      outcome.versionsFailed += write.versionsFailed;
+      this.host.reportProgress?.({
+        phase: "push-file-complete",
+        completed: pending.length,
+        total: pending.length,
+        path: `${prepared.length} prepared file${prepared.length === 1 ? "" : "s"}`,
+        pushed: outcome.pushed,
+        deleted: outcome.deleted,
+        skipped: outcome.skipped,
+        failed: outcome.failed,
+        bytes: outcome.localBytesRead,
+        startedAt: pushStartedAt
+      });
+    }
     this.host.reportProgress?.({
       phase: "push-complete",
       total: pending.length,
@@ -538,6 +599,196 @@ export class LightweightSyncEngine {
       startedAt: pushStartedAt
     });
     return outcome;
+  }
+
+  private async prepareOneLocalPush(
+    localStore: LocalDocumentStore,
+    settings: LightweightLiveSyncSettings,
+    path: string,
+    previousAttempts: number,
+    prepared: PreparedPush[]
+  ): Promise<PushBatchOutcome> {
+    try {
+      const snapshot = await this.host.readLocalFileSnapshot(path);
+      if (!snapshot) {
+        await localStore.markLocalPushSucceeded([path]);
+        await localStore.clearLocalPushFingerprints([path]);
+        return {
+          pushed: 0,
+          deleted: 0,
+          skipped: 1,
+          failed: 0,
+          remoteDocsWritten: 0,
+          remoteDocsReused: 0,
+          remoteDocsConflicts: 0,
+          localBytesRead: 0,
+          chunkDocsBuilt: 0,
+          versionsSaved: 0,
+          versionsSkipped: 0,
+          versionsPruned: 0,
+          versionsFailed: 0
+        };
+      }
+
+      const fingerprint = await localSnapshotFingerprint(snapshot);
+      if (fingerprint === await localStore.getLocalPushFingerprint(path)) {
+        await localStore.markLocalPushSucceeded([path]);
+        return {
+          pushed: 0,
+          deleted: 0,
+          skipped: 1,
+          failed: 0,
+          remoteDocsWritten: 0,
+          remoteDocsReused: 0,
+          remoteDocsConflicts: 0,
+          localBytesRead: Math.max(0, snapshot.size),
+          chunkDocsBuilt: 0,
+          versionsSaved: 0,
+          versionsSkipped: 0,
+          versionsPruned: 0,
+          versionsFailed: 0
+        };
+      }
+
+      const bundle = await this.host.buildLocalPushBundle(snapshot, {
+        encrypt: settings.encrypt,
+        passphrase: settings.passphrase,
+        syncParameterSalt: settings.remoteState.syncParameterSalt,
+        usePathObfuscation: settings.usePathObfuscation,
+        hashAlgorithm: settings.hashAlgorithm
+      });
+      prepared.push({
+        path,
+        previousAttempts,
+        fingerprint,
+        bundle,
+        localBytesRead: Math.max(0, snapshot.size),
+        chunkDocsBuilt: bundle.chunkDocuments.length
+      });
+      return {
+        pushed: 0,
+        deleted: 0,
+        skipped: 0,
+        failed: 0,
+        remoteDocsWritten: 0,
+        remoteDocsReused: 0,
+        remoteDocsConflicts: 0,
+        localBytesRead: Math.max(0, snapshot.size),
+        chunkDocsBuilt: bundle.chunkDocuments.length,
+        versionsSaved: 0,
+        versionsSkipped: 0,
+        versionsPruned: 0,
+        versionsFailed: 0
+      };
+    } catch (error) {
+      return this.markLocalPushFailed(localStore, settings, path, previousAttempts, error);
+    }
+  }
+
+  private async writePreparedPushes(
+    client: SyncRemoteClient,
+    localStore: LocalDocumentStore,
+    settings: LightweightLiveSyncSettings,
+    prepared: PreparedPush[]
+  ): Promise<PushBatchOutcome> {
+    try {
+      const write = await client.putLiveSyncBundles(prepared.map((item) => item.bundle));
+      await localStore.markLocalPushSucceeded(prepared.map((item) => item.path));
+      for (const item of prepared) {
+        await localStore.setLocalPushFingerprint(item.path, item.fingerprint);
+      }
+      let versionsSaved = 0;
+      let versionsSkipped = 0;
+      let versionsPruned = 0;
+      let versionsFailed = 0;
+      for (const item of prepared) {
+        const versionWrite = await this.writeVersionHistory(client, settings, item.bundle.fileDocument, item.fingerprint, item.path);
+        versionsSaved += versionWrite.saved;
+        versionsSkipped += versionWrite.skipped;
+        versionsPruned += versionWrite.pruned;
+        versionsFailed += versionWrite.failed;
+        await this.host.yieldToUi?.();
+      }
+      return {
+        pushed: prepared.length,
+        deleted: 0,
+        skipped: 0,
+        failed: 0,
+        remoteDocsWritten: write.written,
+        remoteDocsReused: write.reused,
+        remoteDocsConflicts: write.conflicts,
+        localBytesRead: 0,
+        chunkDocsBuilt: 0,
+        versionsSaved,
+        versionsSkipped,
+        versionsPruned,
+        versionsFailed
+      };
+    } catch (error) {
+      if (prepared.length > 1) {
+        this.host.log(`Grouped upload failed: ${error instanceof Error ? error.message : String(error)}. Retrying files one at a time to isolate the problem.`);
+        return this.writePreparedPushesIndividually(client, localStore, settings, prepared);
+      }
+      const failed = emptyPushOutcome();
+      for (const item of prepared) {
+        const single = await this.markLocalPushFailed(localStore, settings, item.path, item.previousAttempts, error);
+        failed.failed += single.failed;
+      }
+      return failed;
+    }
+  }
+
+  private async writePreparedPushesIndividually(
+    client: SyncRemoteClient,
+    localStore: LocalDocumentStore,
+    settings: LightweightLiveSyncSettings,
+    prepared: PreparedPush[]
+  ): Promise<PushBatchOutcome> {
+    const outcome = emptyPushOutcome();
+    for (const item of prepared) {
+      const single = await this.writePreparedPushes(client, localStore, settings, [item]);
+      outcome.pushed += single.pushed;
+      outcome.failed += single.failed;
+      outcome.remoteDocsWritten += single.remoteDocsWritten;
+      outcome.remoteDocsReused += single.remoteDocsReused;
+      outcome.remoteDocsConflicts += single.remoteDocsConflicts;
+      outcome.versionsSaved += single.versionsSaved;
+      outcome.versionsSkipped += single.versionsSkipped;
+      outcome.versionsPruned += single.versionsPruned;
+      outcome.versionsFailed += single.versionsFailed;
+      await this.host.yieldToUi?.();
+    }
+    return outcome;
+  }
+
+  private async markLocalPushFailed(
+    localStore: LocalDocumentStore,
+    settings: LightweightLiveSyncSettings,
+    path: string,
+    previousAttempts: number,
+    error: unknown
+  ): Promise<PushBatchOutcome> {
+    const message = error instanceof Error ? error.message : String(error);
+    const attemptsAfterFailure = previousAttempts + 1;
+    const retryDelayMs = failedPushRetryDelayMs(settings, attemptsAfterFailure);
+    const retryAt = Date.now() + retryDelayMs;
+    await localStore.markLocalPushFailed(path, message, retryAt);
+    this.host.log(`Local push failed for ${path}: ${message}. Will retry in ${Math.ceil(retryDelayMs / 1000)}s.`);
+    return {
+      pushed: 0,
+      deleted: 0,
+      skipped: 0,
+      failed: 1,
+      remoteDocsWritten: 0,
+      remoteDocsReused: 0,
+      remoteDocsConflicts: 0,
+      localBytesRead: 0,
+      chunkDocsBuilt: 0,
+      versionsSaved: 0,
+      versionsSkipped: 0,
+      versionsPruned: 0,
+      versionsFailed: 0
+    };
   }
 
   private async skipPullAfterFirstUpload(

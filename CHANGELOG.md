@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.25
+
+- Groups prepared local file uploads into larger CouchDB bulk writes to reduce mobile request overhead while keeping per-file retry isolation if a grouped upload fails.
+- Uses Obsidian's request transport by default for better iPadOS/mobile network compatibility, with standard fetch still available as an advanced fallback.
+- Raises remote pull pages and cache batches modestly, and stops automatic continuation once the current CouchDB checkpoint has been reached.
+- Clarifies sync results as remote document changes rather than files, since CouchDB changes include file, chunk, version, and system documents.
+
 ## 0.1.24
 
 - Embeds the sync worker source inside `main.js` so mobile installs can start the worker even when `sync-worker.js` is not readable from the plugin folder.

@@ -211,7 +211,7 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
     username: "",
     password: "",
     customHeaders: "",
-    useRequestApi: false
+    useRequestApi: true
   },
   requireE2EE: true,
   encrypt: true,
@@ -380,7 +380,7 @@ function readRemoteConfiguration(settings: UpstreamSetupSettings): Partial<Couch
     username: stringValue(record.couchDB_USER ?? record.username ?? record.user),
     password: stringValue(record.couchDB_PASSWORD ?? record.password),
     customHeaders: stringValue(record.couchDB_CustomHeaders ?? record.customHeaders),
-    useRequestApi: booleanValue(record.useRequestAPI, false)
+    useRequestApi: booleanValue(record.useRequestAPI, DEFAULT_SETTINGS.couchDb.useRequestApi)
   };
 }
 
@@ -392,7 +392,7 @@ export function settingsFromUpstreamSetup(upstream: UpstreamSetupSettings): Ligh
     username: stringValue(upstream.couchDB_USER),
     password: stringValue(upstream.couchDB_PASSWORD),
     customHeaders: stringValue(upstream.couchDB_CustomHeaders),
-    useRequestApi: booleanValue(upstream.useRequestAPI, false),
+    useRequestApi: booleanValue(upstream.useRequestAPI, DEFAULT_SETTINGS.couchDb.useRequestApi),
     ...readRemoteConfiguration(upstream)
   };
 

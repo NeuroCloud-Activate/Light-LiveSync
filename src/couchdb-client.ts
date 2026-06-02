@@ -101,6 +101,13 @@ export type PutLiveSyncBundleResult = {
   conflicts: number;
 };
 
+export type PutLiveSyncBundlesResult = {
+  fileIds: string[];
+  written: number;
+  reused: number;
+  conflicts: number;
+};
+
 type CouchDbRawResponse = {
   status: number;
   text: string;
@@ -416,25 +423,58 @@ export class CouchDbClient {
   }
 
   async putLiveSyncBundle(fileDocument: LiveSyncDocument, chunkDocuments: LiveSyncDocument[]): Promise<PutLiveSyncBundleResult> {
-    const revisions = await this.getExistingRevisions([
-      fileDocument._id,
-      ...chunkDocuments.map((chunk) => chunk._id)
-    ]);
-    const docs = chunkDocuments.filter((chunk) => !revisions.has(chunk._id));
-    const reused = chunkDocuments.length - docs.length;
-    const existingFileRevision = revisions.get(fileDocument._id);
-    const fileDoc = {
-      ...fileDocument,
-      ...(existingFileRevision ? { _rev: existingFileRevision } : {})
-    };
-
-    const writeResult = this.summariseBulkWrite([
-      ...await this.bulkDocsInBatches(docs),
-      ...await this.bulkDocs([fileDoc])
-    ], fileDocument._id);
-
+    const result = await this.putLiveSyncBundles([{ fileDocument, chunkDocuments }]);
     return {
       fileId: fileDocument._id,
+      written: result.written,
+      reused: result.reused,
+      conflicts: result.conflicts
+    };
+  }
+
+  async putLiveSyncBundles(bundles: { fileDocument: LiveSyncDocument; chunkDocuments: LiveSyncDocument[] }[]): Promise<PutLiveSyncBundlesResult> {
+    if (bundles.length === 0) {
+      return {
+        fileIds: [],
+        written: 0,
+        reused: 0,
+        conflicts: 0
+      };
+    }
+    const fileDocuments = bundles.map((bundle) => bundle.fileDocument);
+    const fileIds = fileDocuments.map((doc) => doc._id);
+    const chunkDocuments = new Map<string, LiveSyncDocument>();
+    let requestedChunkCount = 0;
+    for (const bundle of bundles) {
+      requestedChunkCount += bundle.chunkDocuments.length;
+      for (const chunk of bundle.chunkDocuments) {
+        if (!chunkDocuments.has(chunk._id)) {
+          chunkDocuments.set(chunk._id, chunk);
+        }
+      }
+    }
+
+    const revisions = await this.getExistingRevisions([
+      ...fileIds,
+      ...chunkDocuments.keys()
+    ]);
+    const chunksToWrite = [...chunkDocuments.values()].filter((chunk) => !revisions.has(chunk._id));
+    const reused = requestedChunkCount - chunksToWrite.length;
+    const fileDocs = fileDocuments.map((fileDocument) => {
+      const existingFileRevision = revisions.get(fileDocument._id);
+      return {
+        ...fileDocument,
+        ...(existingFileRevision ? { _rev: existingFileRevision } : {})
+      };
+    });
+
+    const writeResult = this.summariseBulkWrite([
+      ...await this.bulkDocsInBatches(chunksToWrite),
+      ...await this.bulkDocsInBatches(fileDocs)
+    ], new Set(fileIds));
+
+    return {
+      fileIds,
       written: writeResult.written,
       reused: reused + writeResult.reused,
       conflicts: writeResult.conflicts
@@ -535,7 +575,7 @@ export class CouchDbClient {
     return "unknown";
   }
 
-  private summariseBulkWrite(results: BulkDocumentResult[], fileId: string): {
+  private summariseBulkWrite(results: BulkDocumentResult[], fileIds: Set<string>): {
     written: number;
     reused: number;
     conflicts: number;
@@ -546,7 +586,7 @@ export class CouchDbClient {
     for (const result of results) {
       if (result.ok) {
         written++;
-      } else if (result.error === "conflict" && result.id !== fileId) {
+      } else if (result.error === "conflict" && !fileIds.has(result.id)) {
         conflicts++;
         reused++;
       } else {

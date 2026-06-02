@@ -60,7 +60,14 @@ assert.equal(missingCoreStorage.ok, false);
 assert.match(missingCoreStorage.message, /WebCrypto is unavailable/);
 assert.match(missingCoreStorage.message, /IndexedDB is unavailable/);
 
-const missingFetch = report({}, {}, { fetch: false });
+const missingFetchWithRequestApi = report({}, {}, { fetch: false });
+assert.equal(missingFetchWithRequestApi.ok, true);
+
+const missingFetch = report({
+  couchDb: {
+    useRequestApi: false
+  }
+}, {}, { fetch: false });
 assert.equal(missingFetch.ok, false);
 assert.match(missingFetch.message, /selected fetch transport is unavailable/);
 

@@ -186,6 +186,16 @@ const fakeClient = {
     currentCyclePutCalls += 1;
     putCalls.push({ fileDocument, chunkDocuments });
     return { fileId: fileDocument._id, written: 1 + chunkDocuments.length, reused: 0, conflicts: 0 };
+  },
+  async putLiveSyncBundles(bundles) {
+    currentCyclePutCalls += 1;
+    putCalls.push({ bundles });
+    return {
+      fileIds: bundles.map((bundle) => bundle.fileDocument._id),
+      written: bundles.reduce((sum, bundle) => sum + 1 + bundle.chunkDocuments.length, 0),
+      reused: 0,
+      conflicts: 0
+    };
   }
 };
 
@@ -239,11 +249,11 @@ assert.equal(finalSummary.pendingPush, 0);
 assert.equal(finalSummary.pendingApply, 0);
 assert.equal(totalPushed, uniqueNotes.length);
 assert.equal(totalSkipped, noOpNotes.length);
-assert.equal(putCalls.length, uniqueNotes.length);
+assert.equal(putCalls.length, Math.ceil(uniqueNotes.length / settings.maxPushChangesPerSync));
 assert.equal(totalPulled, remoteChanges.length);
 assert.equal(applyCalls, remoteChanges.length);
 assert.ok(cycle > 1);
-assert.equal(maxPutCallsInCycle, settings.maxPushChangesPerSync);
+assert.equal(maxPutCallsInCycle, 1);
 assert.equal(totalRemoteDocsWritten, uniqueNotes.length * 2);
 
 console.log(JSON.stringify({

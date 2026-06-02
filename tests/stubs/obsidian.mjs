@@ -31,6 +31,11 @@ export async function requestUrl() {
   };
 }
 
+export const Platform = {
+  isMobile: process.env.OBSIDIAN_STUB_IS_MOBILE === "true",
+  isDesktopApp: process.env.OBSIDIAN_STUB_IS_MOBILE !== "true"
+};
+
 export class PluginSettingTab {
   constructor(app, plugin) {
     this.app = app;

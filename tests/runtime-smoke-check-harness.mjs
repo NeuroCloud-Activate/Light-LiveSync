@@ -59,7 +59,7 @@ const ready = report({
 assert.equal(ready.ok, true);
 assert.match(ready.message, /Runtime check passed/);
 assert.match(ready.details.join(" "), /Desktop and mobile manifest/);
-assert.match(ready.details.join(" "), /standard fetch/);
+assert.match(ready.details.join(" "), /Obsidian request API/);
 assert.match(ready.details.join(" "), /Device role: initial device/);
 assert.match(ready.details.join(" "), /Device credential restore is enabled/);
 assert.match(ready.details.join(" "), /Session credential cache is enabled/);
