@@ -85,6 +85,13 @@ export class Setting {
     return this;
   }
 
+  addSearch(callback) {
+    const text = createTextComponent("input");
+    callback(text);
+    this.settingEl.children.push(text);
+    return this;
+  }
+
   addTextArea(callback) {
     const text = createTextComponent("textarea");
     callback(text);
@@ -177,7 +184,11 @@ function createTextComponent(tag) {
       rows: 0,
       type: "text",
       value: "",
-      placeholder: ""
+      placeholder: "",
+      attrs: {},
+      setAttribute(name, value) {
+        this.attrs[name] = value;
+      }
     },
     callback: undefined,
     setPlaceholder(value) {

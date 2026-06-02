@@ -99,7 +99,6 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
 
   private renderRecoveryTab(containerEl: SettingsContainer): void {
     this.renderVersionRecovery(containerEl);
-    this.renderRecoveryBackups(containerEl);
   }
 
   private section(containerEl: SettingsContainer, title: string): SettingsContainer {
@@ -745,10 +744,11 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         });
       });
 
-    let requestedPath = this.activeFilePath() ?? "";
+    let requestedPath = this.activeFilePath();
     let pathText: { inputEl: HTMLInputElement | HTMLTextAreaElement; setValue(value: string): unknown } | undefined;
     const listEl = containerEl.createEl("div");
     listEl.addClass("light-livesync-recovery-list");
+    const autocompleteId = this.addFileLocationDatalist(containerEl);
 
     const renderVersionList = (versions: FileVersionEntry[], path: string) => {
       listEl.empty();
@@ -788,9 +788,9 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     };
 
     new Setting(containerEl)
-      .setName("File to recover")
-      .setDesc("Use a vault path such as Notes/example.md. The open-file button fills this in from the note you are currently viewing.")
-      .addText((text) => {
+      .setName("File location")
+      .setDesc("Start typing a vault path, or use the currently open file.")
+      .addSearch((text) => {
         pathText = text;
         text
           .setPlaceholder("Notes/example.md")
@@ -798,7 +798,13 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
           .onChange((value) => {
             requestedPath = value;
           });
-      })
+        text.inputEl.setAttribute("list", autocompleteId);
+        text.inputEl.setAttribute("autocomplete", "on");
+      });
+
+    new Setting(containerEl)
+      .setName("Find versions")
+      .setDesc("Load previous synced versions for the selected file. Restoring a version backs up the current file first.")
       .addButton((button) => {
         button.setButtonText("Use open file").onClick(() => {
           requestedPath = this.activeFilePath() ?? requestedPath;
@@ -812,6 +818,28 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       });
 
     listEl.createEl("p", { text: "Choose a file and find versions when you need to recover an older copy." });
+  }
+
+  private addFileLocationDatalist(containerEl: SettingsContainer): string {
+    const autocompleteId = `light-livesync-file-locations-${Date.now()}`;
+    const datalist = containerEl.createEl("datalist");
+    datalist.setAttr("id", autocompleteId);
+    for (const path of this.vaultFilePaths().slice(0, 500)) {
+      const option = datalist.createEl("option");
+      option.setAttr("value", path);
+    }
+    return autocompleteId;
+  }
+
+  private vaultFilePaths(): string[] {
+    const getFiles = this.plugin.app.vault?.getFiles;
+    if (typeof getFiles !== "function") {
+      return [];
+    }
+    return getFiles.call(this.plugin.app.vault)
+      .map((file: { path?: unknown }) => typeof file.path === "string" ? file.path : "")
+      .filter(Boolean)
+      .sort((left: string, right: string) => left.localeCompare(right));
   }
 
   private renderQueueStatus(containerEl: SettingsContainer): void {
@@ -848,44 +876,6 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       );
   }
 
-  private renderRecoveryBackups(containerEl: SettingsContainer): void {
-    this.section(containerEl, "Recover from backups");
-    new Setting(containerEl)
-      .setName("Recovery backups")
-      .setDesc("Restore a file from one of the backups created before an overwrite, merge, or delete. If the original file exists, the existing version is backed up before restore.")
-      .addButton((button) => {
-        button.setButtonText("Refresh").onClick(() => this.display());
-      });
-
-    const listEl = containerEl.createEl("div");
-    listEl.addClass("light-livesync-recovery-list");
-    listEl.createEl("p", { text: "Scanning recovery backups..." });
-
-    void this.plugin.listRecoveryBackups(10)
-      .then((backups) => {
-        listEl.empty();
-        if (backups.length === 0) {
-          listEl.createEl("p", { text: "No recovery backups found yet. Backups are created only when a local file is about to be overwritten, merged, or deleted; a failed remote apply may stop before a backup is needed." });
-          return;
-        }
-        for (const backup of backups) {
-          new Setting(listEl)
-            .setName(backup.originalPath)
-            .setDesc(`${formatTime(backup.modifiedAt)}. Backup: ${backup.backupPath}. Size: ${formatBytes(backup.size)}.`)
-            .addButton((button) => {
-              button.setButtonText("Restore").onClick(async () => {
-                await this.plugin.restoreRecoveryBackup(backup);
-                this.display();
-              });
-            });
-        }
-      })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        listEl.empty();
-        listEl.createEl("p", { text: `Could not scan recovery backups: ${friendlyError(message)}` });
-      });
-  }
 }
 
 function formatTime(timestamp: number): string {

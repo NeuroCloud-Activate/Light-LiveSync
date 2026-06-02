@@ -10,7 +10,13 @@ function render(settingsPatch) {
   const plugin = {
     app: {
       vault: {
-        configDir: ".obsidian"
+        configDir: ".obsidian",
+        getFiles() {
+          return [
+            { path: "Notes/open.md" },
+            { path: "Notes/older.md" }
+          ];
+        }
       },
       workspace: {
         getActiveFile() {
@@ -296,11 +302,12 @@ const recovery = render({
 assert.match(recovery, /Previous file versions/);
 assert.match(recovery, /Background version history/);
 assert.match(recovery, /keeps up to 10 versions per file or 90 days/);
-assert.match(recovery, /File to recover/);
+assert.match(recovery, /File location/);
+assert.match(recovery, /Start typing a vault path/);
 assert.match(recovery, /Use open file/);
 assert.match(recovery, /Find versions/);
-assert.match(recovery, /Recover from backups/);
-assert.match(recovery, /Recovery backups/);
+assert.doesNotMatch(recovery, /Recover from backups/);
+assert.doesNotMatch(recovery, /Recovery backups/);
 
 const advanced = render({
   settingsTab: "advanced",

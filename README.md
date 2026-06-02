@@ -16,7 +16,7 @@ It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmr
 - Restores saved credentials automatically on app start so mobile sync can resume without a repeated credential prompt.
 - Syncs vault configuration and plugin data along with notes.
 - Uses periodic sync as a fallback when mobile backgrounding or missed file events get in the way.
-- Automatically merges ordinary text edits, keeps recovery backups, and lets you restore from those backups in the Recovery tab.
+- Automatically merges ordinary text edits and creates safety backups before overwrites, merges, deletes, or version restores.
 - Keeps encrypted previous-file versions in CouchDB so you can recover an older synced copy with only a few clicks.
 - Keeps the status UI calm and small: `Ready`, `Syncing`, or `Completed`, with upload/download KBps rates while active and detailed counts in the Activity tab.
 - Includes runtime checks and a non-secret evidence report for troubleshooting.
@@ -114,7 +114,7 @@ The plugin itself does not create CouchDB users from inside the app. User/databa
 
 ## Recovery And Versions
 
-Light-LiveSync keeps recovery simple. The Recovery tab gives you one place to restore from automatic local backups or from previous synced file versions.
+Light-LiveSync keeps recovery simple. The Recovery tab focuses on previous synced file versions, with one field for the file location and one button to find saved versions.
 
 Version history runs quietly after successful uploads. It stores a small encrypted version marker for the file and reuses the encrypted content chunks already in CouchDB, so repeated versions avoid duplicating the same data. Retention is intentionally bounded: up to 10 versions per file, and only versions from the last 90 days.
 
@@ -125,7 +125,7 @@ To recover an older synced file:
 3. Choose **Find versions**.
 4. Pick the version to restore.
 
-Before replacing the current file, Light-LiveSync creates a local recovery backup. The restored file is then queued for normal sync so the recovered copy can flow to your other devices.
+Before replacing the current file, Light-LiveSync creates a local safety backup. The restored file is then queued for normal sync so the recovered copy can flow to your other devices.
 
 ## Security
 

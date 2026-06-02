@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.19
+
+- Refines the Recovery tab so the file location is a dedicated autocomplete search field above the version lookup actions.
+- Removes the separate recovery-backup browser from the Recovery tab to keep recovery focused on previous synced versions.
+- Keeps automatic local safety backups in place before version restores or remote overwrites.
+
 ## 0.1.18
 
 - Adds background file versioning after successful uploads.
