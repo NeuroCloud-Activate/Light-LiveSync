@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.20
+
+- Improves automatic remote apply resolution so terminal skipped items are marked resolved instead of repeating forever.
+- Keeps genuinely incomplete remote files waiting only when they still need missing chunks or usable decryption.
+- Adds plain-language Activity log details for waiting, skipped, and failed remote apply items.
+- Keeps automatic text merge as the normal conflict-resolution path before remote items are marked applied.
+
 ## 0.1.19
 
 - Refines the Recovery tab so the file location is a dedicated autocomplete search field above the version lookup actions.

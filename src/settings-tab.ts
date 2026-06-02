@@ -872,7 +872,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Live apply")
       .setDesc(
-        `${formatTime(liveApply.lastAppliedAt)}. Applied ${liveApply.applied}; merged ${liveApply.merged}; deleted ${liveApply.deleted}; backups ${liveApply.backedUp}; unresolved conflicts ${liveApply.conflicted}; failed ${liveApply.failed}.`
+        `${formatTime(liveApply.lastAppliedAt)}. Applied ${liveApply.applied}; merged ${liveApply.merged}; deleted ${liveApply.deleted}; skipped ${liveApply.skipped}; waiting ${liveApply.waiting}; backups ${liveApply.backedUp}; unresolved conflicts ${liveApply.conflicted}; failed ${liveApply.failed}.`
       );
   }
 

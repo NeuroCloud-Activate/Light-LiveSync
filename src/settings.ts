@@ -123,6 +123,7 @@ export type LocalLiveApplyState = {
   applied: number;
   deleted: number;
   skipped: number;
+  waiting: number;
   merged: number;
   backedUp: number;
   conflicted: number;
@@ -288,6 +289,7 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
     applied: 0,
     deleted: 0,
     skipped: 0,
+    waiting: 0,
     merged: 0,
     backedUp: 0,
     conflicted: 0,

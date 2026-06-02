@@ -35,6 +35,7 @@ export type AutoApplyOutcome = {
   applied: number;
   deleted: number;
   skipped: number;
+  waiting: number;
   merged: number;
   backedUp: number;
   conflicted: number;
@@ -432,7 +433,7 @@ export class LightweightSyncEngine {
     applied?: AutoApplyOutcome
   ): void {
     this.host.log(
-      `Sync requested (${reason}). Pushed ${pushed.pushed}, deleted ${pushed.deleted}, pulled ${pulledCount} remote changes from ${databaseName}. Version history saved ${pushed.versionsSaved}, skipped ${pushed.versionsSkipped}, pruned ${pushed.versionsPruned}, failed ${pushed.versionsFailed}.${applied ? ` Applied ${applied.applied}, merged ${applied.merged}, deleted ${applied.deleted}, backups ${applied.backedUp}, conflicts ${applied.conflicted}.` : ""}`
+      `Sync requested (${reason}). Pushed ${pushed.pushed}, deleted ${pushed.deleted}, pulled ${pulledCount} remote changes from ${databaseName}. Version history saved ${pushed.versionsSaved}, skipped ${pushed.versionsSkipped}, pruned ${pushed.versionsPruned}, failed ${pushed.versionsFailed}.${applied ? ` Applied ${applied.applied}, merged ${applied.merged}, deleted ${applied.deleted}, skipped ${applied.skipped}, waiting ${applied.waiting}, backups ${applied.backedUp}, conflicts ${applied.conflicted}, failed ${applied.failed}.` : ""}`
     );
   }
 
@@ -451,7 +452,7 @@ export class LightweightSyncEngine {
       : "";
     return {
       ok: true,
-      message: `Uploaded ${pushed.pushed}, deleted ${pushed.deleted}, skipped ${pushed.skipped} unchanged file${pushed.skipped === 1 ? "" : "s"}. Version history saved ${pushed.versionsSaved}, pruned ${pushed.versionsPruned}, failed ${pushed.versionsFailed}. Downloaded ${pulled.pulledCount} remote change${pulled.pulledCount === 1 ? "" : "s"}.${applied ? ` Applied ${applied.applied + applied.merged + applied.deleted}.` : ""} Still waiting: ${pendingUpload} local upload${pendingUpload === 1 ? "" : "s"}, ${pendingApply} remote apply item${pendingApply === 1 ? "" : "s"}.${moreRemoteLikely ? " The remote returned a full batch, so more downloads may still be waiting." : ""}${nextPass}`,
+      message: `Uploaded ${pushed.pushed}, deleted ${pushed.deleted}, skipped ${pushed.skipped} unchanged file${pushed.skipped === 1 ? "" : "s"}. Version history saved ${pushed.versionsSaved}, pruned ${pushed.versionsPruned}, failed ${pushed.versionsFailed}. Downloaded ${pulled.pulledCount} remote change${pulled.pulledCount === 1 ? "" : "s"}.${applied ? ` Applied ${applied.applied + applied.merged + applied.deleted}, skipped ${applied.skipped}, waiting ${applied.waiting}, failed ${applied.failed}.` : ""} Still waiting: ${pendingUpload} local upload${pendingUpload === 1 ? "" : "s"}, ${pendingApply} remote apply item${pendingApply === 1 ? "" : "s"}.${moreRemoteLikely ? " The remote returned a full batch, so more downloads may still be waiting." : ""}${nextPass}`,
       metrics,
       continueSync
     };

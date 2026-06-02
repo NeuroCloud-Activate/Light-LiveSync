@@ -188,7 +188,7 @@ const engine = new LightweightSyncEngine({
   applyPulledChanges: async () => {
     autoApplyCalls += 1;
     store.pendingApply = Math.max(0, store.pendingApply - 1);
-    return { applied: 1, deleted: 0, skipped: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 };
+    return { applied: 1, deleted: 0, skipped: 0, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 };
   },
   createRemoteClient: () => fakeClient,
   yieldToUi: async () => {
@@ -390,7 +390,7 @@ const retryEngine = new LightweightSyncEngine({
     fileDocument: { _id: snapshot.path, type: "plain", path: snapshot.path, children: [], ctime: 1, mtime: 2, size: 0 },
     chunkDocuments: []
   }),
-  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
+  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
   createRemoteClient: () => retryClient,
   log: () => {}
 });
@@ -433,7 +433,7 @@ const noOpEngine = new LightweightSyncEngine({
     noOpBuildCalls += 1;
     throw new Error("No-op push should not build a bundle.");
   },
-  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
+  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
   createRemoteClient: () => ({
     ...fakeClient,
     async getChangesSince() {
@@ -527,7 +527,7 @@ const offlineEngine = new LightweightSyncEngine({
   buildLocalPushBundle: async () => {
     throw new Error("Offline automatic sync must not build local bundles.");
   },
-  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
+  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
   createRemoteClient: () => ({
     ...fakeClient,
     async inspect() {
@@ -562,7 +562,7 @@ const additionalDeviceEngine = new LightweightSyncEngine({
   buildLocalPushBundle: async () => {
     throw new Error("Additional-device initialization must not build local bundles.");
   },
-  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
+  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
   createRemoteClient: () => ({
     ...fakeClient,
     async ensureDatabase() {

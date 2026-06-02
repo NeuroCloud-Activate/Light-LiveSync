@@ -137,6 +137,43 @@ assert.equal(configResult.applied, 1);
 assert.equal(configResult.skipped, 0);
 assert.equal(vault.files.get(".obsidian/app.json"), "{}");
 
+const skipAndWaitResult = await applyReadyPreviewsToLiveVault(
+  vault,
+  [
+    {
+      id: "doc-protected-root",
+      rev: "1-protected-root",
+      path: ".obsidian",
+      status: "ready",
+      contentType: "text",
+      chunkCount: 1,
+      byteLength: 2,
+      content: "{}"
+    },
+    {
+      id: "doc-waiting",
+      rev: "1-waiting",
+      path: "notes/waiting.md",
+      status: "missing-chunks",
+      contentType: "text",
+      chunkCount: 2,
+      byteLength: 0,
+      missingChunkIds: ["h:missing"],
+      reason: "Missing 1 of 2 chunks."
+    }
+  ],
+  {
+    configDir: ".obsidian",
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
+  }
+);
+
+assert.equal(skipAndWaitResult.skipped, 1);
+assert.deepEqual(skipAndWaitResult.skippedIds, ["doc-protected-root"]);
+assert.equal(skipAndWaitResult.waiting, 1);
+assert.equal(skipAndWaitResult.waitingReasons.some((reason) => /Missing 1 of 2 chunks/.test(reason)), true);
+assert.equal(skipAndWaitResult.appliedIds.includes("doc-waiting"), false);
+
 const binary = new Uint8Array([1, 2, 3, 4]).buffer;
 let applyYields = 0;
 const binaryResult = await applyReadyPreviewsToLiveVault(
@@ -217,6 +254,8 @@ console.log(JSON.stringify({
   backups: writeResult.backedUp + deleteResult.backedUp,
   conflicts: writeResult.conflicted + deleteResult.conflicted,
   configSynced: vault.files.get(".obsidian/app.json") === "{}",
+  terminalSkipsClear: skipAndWaitResult.skippedIds.length,
+  waitingStaysQueued: skipAndWaitResult.waiting,
   binary: true,
   batchApplied: batchResult.applied,
   applyYields

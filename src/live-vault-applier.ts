@@ -6,11 +6,16 @@ export type LiveVaultApplyResult = {
   applied: number;
   deleted: number;
   skipped: number;
+  waiting: number;
   merged: number;
   backedUp: number;
   conflicted: number;
   failed: number;
   appliedIds: string[];
+  skippedIds: string[];
+  waitingReasons: string[];
+  skippedReasons: string[];
+  failedReasons: string[];
   conflictFolder: string;
 };
 
@@ -68,6 +73,12 @@ function folderOf(path: string): string {
 
 function isProtectedTarget(path: string, configDir: string): boolean {
   return path === configDir || path.startsWith(".trash/");
+}
+
+function recordReason(list: string[], path: string, reason: string): void {
+  if (list.length < 10) {
+    list.push(`${path}: ${reason}`);
+  }
 }
 
 async function ensureFolder(adapter: DataAdapter, folderPath: string): Promise<void> {
@@ -184,6 +195,8 @@ async function applyReadyPreview(
 ): Promise<void> {
   if (!hasWritableContent(preview)) {
     result.skipped++;
+    result.skippedIds.push(preview.id);
+    recordReason(result.skippedReasons, preview.path, "No writable content was reconstructed.");
     return;
   }
 
@@ -221,13 +234,22 @@ async function applyPreview(
   result: MutableLiveVaultApplyResult
 ): Promise<void> {
   if (preview.status !== "ready" && preview.status !== "deleted") {
-    result.skipped++;
+    if (preview.status === "unsupported") {
+      result.skipped++;
+      result.skippedIds.push(preview.id);
+      recordReason(result.skippedReasons, preview.path, preview.reason ?? "Unsupported remote file format.");
+      return;
+    }
+    result.waiting++;
+    recordReason(result.waitingReasons, preview.path, preview.reason ?? `Remote file is ${preview.status}.`);
     return;
   }
 
   const targetPath = safeVaultPath(preview.path);
   if (isProtectedTarget(targetPath, options.configDir)) {
     result.skipped++;
+    result.skippedIds.push(preview.id);
+    recordReason(result.skippedReasons, targetPath, "Protected vault location.");
     return;
   }
 
@@ -249,11 +271,16 @@ export async function applyReadyPreviewsToLiveVault(
     applied: 0,
     deleted: 0,
     skipped: 0,
+    waiting: 0,
     merged: 0,
     backedUp: 0,
     conflicted: 0,
     failed: 0,
     appliedIds: [],
+    skippedIds: [],
+    waitingReasons: [],
+    skippedReasons: [],
+    failedReasons: [],
     conflictFolder: options.conflictFolder
   };
 
@@ -262,8 +289,9 @@ export async function applyReadyPreviewsToLiveVault(
       await options.yieldToUi?.();
       await applyPreview(vault, preview, options, result);
       await options.yieldToUi?.();
-    } catch {
+    } catch (error) {
       result.failed++;
+      recordReason(result.failedReasons, preview.path, error instanceof Error ? error.message : "Unexpected write failure.");
     }
   }
 

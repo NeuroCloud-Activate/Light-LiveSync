@@ -97,7 +97,11 @@ type VaultListAdapter = {
 };
 
 function hasLiveApplyActivity(result: LiveVaultApplyResult): boolean {
-  return result.applied + result.merged + result.deleted + result.backedUp + result.conflicted + result.failed > 0;
+  return result.applied + result.merged + result.deleted + result.skipped + result.waiting + result.backedUp + result.conflicted + result.failed > 0;
+}
+
+function applyReasonSummary(label: string, reasons: string[]): string {
+  return reasons.length > 0 ? ` ${label}: ${reasons.join("; ")}` : "";
 }
 
 export default class LightweightLiveSyncPlugin extends Plugin {
@@ -1314,7 +1318,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     };
     const result = await this.applyPreviewBatchToVault(context, this.applyBatchLimit());
     if (hasLiveApplyActivity(result)) {
-      this.log(`Auto-applied pulled changes. Applied ${result.applied}, merged ${result.merged}, deleted ${result.deleted}, backups ${result.backedUp}, conflicts ${result.conflicted}, failed ${result.failed}.`);
+      this.log(
+        `Auto-applied pulled changes. Applied ${result.applied}, merged ${result.merged}, deleted ${result.deleted}, skipped ${result.skipped}, waiting ${result.waiting}, backups ${result.backedUp}, conflicts ${result.conflicted}, failed ${result.failed}.${applyReasonSummary("Waiting", result.waitingReasons)}${applyReasonSummary("Skipped", result.skippedReasons)}${applyReasonSummary("Failed", result.failedReasons)}`
+      );
     }
     return result;
   }
@@ -1330,7 +1336,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       conflictFolder: this.conflictFolder(),
       yieldToUi: () => this.yieldToUi()
     }));
-    await context.store.markApplied(result.appliedIds);
+    await context.store.markApplied([...result.appliedIds, ...result.skippedIds]);
     await this.updateLocalLiveApply(result);
     await this.updateLocalQueue(await context.store.getSummary());
     return result;
@@ -1599,6 +1605,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       applied: result.applied,
       deleted: result.deleted,
       skipped: result.skipped,
+      waiting: result.waiting,
       merged: result.merged,
       backedUp: result.backedUp,
       conflicted: result.conflicted,
