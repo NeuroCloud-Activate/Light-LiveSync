@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.34
+
+- Treats startup catch-up pages with an existing CouchDB checkpoint like lightweight checkpoint pulls, avoiding repeated full server inspection during new-device catch-up.
+- Keeps full startup inspection at checkpoint `0`, so first-run remote validation and empty-remote first-vault upload detection still run normally.
+- Adds harness coverage for startup catch-up from an existing CouchDB checkpoint.
+
 ## 0.1.33
 
 - Clarifies sync-finish wording so local pending uploads/apply items are separate from remote CouchDB catch-up pages.

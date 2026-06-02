@@ -822,6 +822,43 @@ const missingSaltOutcome = await missingSaltEngine.sync("periodic");
 assert.equal(missingSaltOutcome.ok, true);
 assert.equal(missingSaltInspectCalls, 1);
 
+const startupCatchUpStore = new MemoryStore([]);
+startupCatchUpStore.lastRemoteSeq = "9039-g1AAAAC";
+let startupCatchUpInspectCalls = 0;
+let startupCatchUpPullSince = "";
+const startupCatchUpEngine = new LightweightSyncEngine({
+  getSettings: () => settings,
+  updateRemoteInspection: async () => {
+    throw new Error("Startup catch-up with an existing checkpoint should not refresh remote inspection.");
+  },
+  updateLocalQueue: async () => {},
+  getLocalStore: () => startupCatchUpStore,
+  readLocalFileSnapshot: async () => {
+    throw new Error("Pull-only startup catch-up should not read local files.");
+  },
+  buildLocalPushBundle: async () => {
+    throw new Error("Pull-only startup catch-up should not build upload bundles.");
+  },
+  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
+  createRemoteClient: () => ({
+    ...fakeClient,
+    async inspect() {
+      startupCatchUpInspectCalls += 1;
+      throw new Error("Startup catch-up should use the saved checkpoint instead of inspection.");
+    },
+    async getChangesSince(since) {
+      startupCatchUpPullSince = String(since);
+      return { lastSeq: "9316-g1AAAAC", changes: [] };
+    }
+  }),
+  log: () => {}
+});
+const startupCatchUpOutcome = await startupCatchUpEngine.sync("startup");
+assert.equal(startupCatchUpOutcome.ok, true);
+assert.equal(startupCatchUpInspectCalls, 0);
+assert.equal(startupCatchUpPullSince, "9039-g1AAAAC");
+assert.equal((await startupCatchUpStore.getSummary()).lastRemoteSeq, "9316-g1AAAAC");
+
 let offlineClientCalls = 0;
 const offlineStore = new MemoryStore([]);
 const offlineEngine = new LightweightSyncEngine({
@@ -905,6 +942,7 @@ console.log(JSON.stringify({
   pullCacheYields: pullBatchYields,
   lightweightPeriodicSkippedInspect: lightweightPeriodicInspectCalls === 0,
   missingSaltStillInspects: missingSaltInspectCalls === 1,
+  startupCatchUpSkippedInspect: startupCatchUpInspectCalls === 0,
   offlineAutomatic: offlineAutomatic.message,
   offlineManualTriedNetwork: offlineClientCalls === 1,
   additionalDeviceInitialise: additionalDeviceInitialise.message,

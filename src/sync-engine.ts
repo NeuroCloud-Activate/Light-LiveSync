@@ -364,7 +364,7 @@ export class LightweightSyncEngine {
     startingSummary: LocalStoreSummary,
     metrics: RuntimeSyncMetricsState
   ): Promise<RemoteInspection | undefined> {
-    if (this.canUseLightweightPeriodicPull(settings, reason, startingSummary)) {
+    if (this.canUseLightweightPull(settings, reason, startingSummary)) {
       return undefined;
     }
 
@@ -381,12 +381,13 @@ export class LightweightSyncEngine {
     return inspection;
   }
 
-  private canUseLightweightPeriodicPull(
+  private canUseLightweightPull(
     settings: LightweightLiveSyncSettings,
     reason: SyncReason,
     startingSummary: LocalStoreSummary
   ): boolean {
-    return reason === "periodic" &&
+    const startupCatchUpHasCheckpoint = reason === "startup" && startingSummary.lastRemoteSeq !== "0";
+    return (reason === "periodic" || startupCatchUpHasCheckpoint) &&
       startingSummary.pendingPush === 0 &&
       !!settings.remoteState.syncParameterSalt;
   }
