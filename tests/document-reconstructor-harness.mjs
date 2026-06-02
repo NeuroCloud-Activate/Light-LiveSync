@@ -218,6 +218,46 @@ const stillMissingPreview = await new DocumentReconstructor(
 assert.equal(stillMissingPreview.status, "missing-chunks");
 assert.deepEqual(stillMissingPreview.missingChunkIds, ["h:missing"]);
 
+const batchMissingStore = new MemoryStore({}, [
+  cached({
+    _id: "notes/batch-a.md",
+    path: "notes/batch-a.md",
+    type: "plain",
+    children: ["h:batch-a"],
+    ctime: 1,
+    mtime: 2,
+    size: 1,
+    eden: {}
+  }),
+  cached({
+    _id: "notes/batch-b.md",
+    path: "notes/batch-b.md",
+    type: "plain",
+    children: ["h:batch-b"],
+    ctime: 1,
+    mtime: 2,
+    size: 1,
+    eden: {}
+  })
+]);
+const batchMissingCalls = [];
+const batchMissingSummary = await new DocumentReconstructor(
+  batchMissingStore,
+  options,
+  {
+    loadMissingChunks: async (ids) => {
+      batchMissingCalls.push(ids);
+      const repaired = ids.map((id) => ({ _id: id, type: "leaf", data: id.endsWith("a") ? "A" : "B" }));
+      await batchMissingStore.cacheRemoteDocuments(repaired);
+      return new Map(repaired.map((doc) => [doc._id, doc]));
+    }
+  }
+).previewPending(10);
+
+assert.equal(batchMissingSummary.ready, 2);
+assert.equal(batchMissingCalls.length, 1);
+assert.deepEqual(batchMissingCalls[0].sort(), ["h:batch-a", "h:batch-b"]);
+
 let reconstructionYields = 0;
 const chunkIds = Array.from({ length: 9 }, (_, index) => `h:large-${index}`);
 const largeChunks = Object.fromEntries(chunkIds.map((id, index) => [id, chunk(id, `${index}`)]));
@@ -253,6 +293,7 @@ console.log(JSON.stringify({
   urlSafeBinary: true,
   corruptBinary: corruptBinaryPreview.status,
   missingChunkRepairCalls,
+  batchMissingChunkRepairCalls: batchMissingCalls.length,
   stillMissing: stillMissingPreview.status,
   reconstructionYields
 }, null, 2));

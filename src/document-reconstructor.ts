@@ -195,6 +195,7 @@ export class DocumentReconstructor {
   }
 
   private async previewBatch(pending: CachedRemoteDocument[]): Promise<ReconstructionBatchSummary> {
+    await this.prefetchMissingChunksForBatch(pending);
     const previews = [];
     for (const cached of pending) {
       await this.runtime?.yieldToUi?.();
@@ -202,6 +203,54 @@ export class DocumentReconstructor {
       await this.runtime?.yieldToUi?.();
     }
     return this.summarise(previews);
+  }
+
+  private async prefetchMissingChunksForBatch(pending: CachedRemoteDocument[]): Promise<void> {
+    if (!this.runtime?.loadMissingChunks || pending.length === 0) {
+      return;
+    }
+
+    const childIds = new Set<string>();
+    for (const cached of pending) {
+      await this.runtime.yieldToUi?.();
+      const doc = await this.chunkedFileDocumentForPrefetch(cached);
+      if (!doc) {
+        continue;
+      }
+      for (const childId of doc.children ?? []) {
+        if (!edenChunk(doc, childId)) {
+          childIds.add(childId);
+        }
+      }
+    }
+
+    const ids = [...childIds];
+    if (ids.length === 0) {
+      return;
+    }
+
+    const cachedChunks = await this.store.getCachedDocuments(ids);
+    const missingIds = ids.filter((id) => !cachedChunks.has(id));
+    if (missingIds.length === 0) {
+      return;
+    }
+
+    await this.runtime.yieldToUi?.();
+    await this.runtime.loadMissingChunks(missingIds);
+    await this.runtime.yieldToUi?.();
+  }
+
+  private async chunkedFileDocumentForPrefetch(cached: CachedRemoteDocument): Promise<LiveSyncFileDocument | undefined> {
+    if (!isLiveSyncFileDocument(cached.doc)) {
+      return undefined;
+    }
+    const decrypted = await this.decryptFileOrReturnStatus(cached, cached.doc).catch(() => undefined);
+    if (!decrypted || "status" in decrypted || cached.deleted || decrypted._deleted || decrypted.deleted) {
+      return undefined;
+    }
+    return decrypted.type === ENTRY_TYPES.NOTE_BINARY || decrypted.type === ENTRY_TYPES.NOTE_PLAIN
+      ? decrypted
+      : undefined;
   }
 
   private async previewChunkedDocument(

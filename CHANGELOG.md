@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.28
+
+- Prefetches missing content chunks once per apply batch before reconstructing files, reducing repeated CouchDB chunk recovery on Windows.
+- Keeps Activity logs calmer by collapsing many one-file chunk recovery calls into batch recovery during remote apply backlogs.
+- Preserves the existing automatic continuation behavior while old local apply backlogs drain in bounded file batches.
+
 ## 0.1.27
 
 - Stops repeated mobile re-downloads by saving CouchDB's returned checkpoint after every successful pull window.
