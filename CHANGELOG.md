@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.15
+
+- Adds live sync progress reporting so manual sync no longer looks stuck after files are queued.
+- Shows compact `LLS:Status (#U/#D)` upload/download progress and KBps in the status bar.
+- Writes plain-language activity log milestones for server checks, uploads, downloads, apply work, and sync finish.
+
 ## 0.1.14
 
 - Tracks the compiled root `main.js` and `sync-worker.js` files so copying the GitHub repo folder into a vault plugin folder can load normally.

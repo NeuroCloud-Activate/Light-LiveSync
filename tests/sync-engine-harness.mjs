@@ -97,6 +97,7 @@ class MemoryStore {
 
 const store = new MemoryStore();
 const putCalls = [];
+const progressEvents = [];
 let autoApplyCalls = 0;
 let uiYields = 0;
 
@@ -184,7 +185,8 @@ const engine = new LightweightSyncEngine({
   yieldToUi: async () => {
     uiYields += 1;
   },
-  log: () => {}
+  log: () => {},
+  reportProgress: (progress) => progressEvents.push(progress)
 });
 
 const outcome = await engine.sync("vault-change");
@@ -205,6 +207,12 @@ assert.ok(outcome.metrics.inspectMs >= 0);
 assert.ok(outcome.metrics.pushMs >= 0);
 assert.ok(outcome.metrics.pullMs >= 0);
 assert.ok(outcome.metrics.applyMs >= 0);
+assert.equal(progressEvents.some((event) => event.phase === "inspect-start"), true);
+assert.equal(progressEvents.some((event) => event.phase === "push-start" && event.total === 2), true);
+assert.equal(progressEvents.some((event) => event.phase === "push-file-complete" && event.completed === 2 && event.bytes === 20), true);
+assert.equal(progressEvents.some((event) => event.phase === "pull-start"), true);
+assert.equal(progressEvents.some((event) => event.phase === "pull-batch" && event.completed === 1), true);
+assert.equal(progressEvents.some((event) => event.phase === "apply-start" && event.pending === 1), true);
 
 const firstUploadStore = new MemoryStore([
   { path: "notes/first.md", deleted: false, queuedAt: 1, updatedAt: 1, attempts: 0, nextAttemptAt: 0, lastError: "" }
@@ -574,6 +582,7 @@ console.log(JSON.stringify({
   noOpSkippedWithoutNetworkWrite: noOpOutcome.metrics.skippedFiles,
   automaticFirstSyncQueued: automaticFirstQueued,
   automaticFirstSyncPulledOwnUpload: automaticFirstPulled,
+  progressPhases: [...new Set(progressEvents.map((event) => event.phase))],
   pullCacheBatchSizes: pullBatchStore.cacheBatchSizes,
   pullCacheYields: pullBatchYields,
   offlineAutomatic: offlineAutomatic.message,

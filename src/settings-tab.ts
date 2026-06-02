@@ -667,7 +667,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Activity log")
-      .setDesc("Recent setup and sync messages are kept here so short popups are easier to review.")
+      .setDesc("Plain-language setup and sync progress is kept here so you can tell what the plugin is doing without watching short popups.")
       .addButton((button) => {
         button.setButtonText("Clear").onClick(async () => {
           await this.plugin.clearActivityLog();

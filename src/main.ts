@@ -38,7 +38,7 @@ import {
   type LightweightLiveSyncSettings
 } from "./settings";
 import { SyncScheduler } from "./scheduler";
-import { LightweightSyncEngine, type SyncOutcome } from "./sync-engine";
+import { LightweightSyncEngine, type SyncOutcome, type SyncProgress } from "./sync-engine";
 import { OptionalSyncWorkerClient } from "./sync-worker-client";
 import { CalmStatusPresenter } from "./status-presenter";
 import type { LiveSyncBuildOptions, LocalFileSnapshot } from "./livesync-document-builder";
@@ -109,6 +109,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private vaultEventCutoffMs = Date.now();
   private configuredAtLoad = false;
   private sessionCredentials: CredentialPayload | null = null;
+  private lastProgressLogAt = 0;
+  private statusUploadCount = 0;
+  private statusDownloadCount = 0;
+  private statusTransferRate = "";
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -128,7 +132,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       applyPulledChanges: (databaseName) => this.applyPulledChanges(databaseName),
       isNetworkLikelyOnline: () => this.isNetworkLikelyOnline(),
       yieldToUi: () => this.yieldToUi(),
-      log: (message) => this.log(message)
+      log: (message) => this.log(message),
+      reportProgress: (progress) => this.reportSyncProgress(progress)
     });
 
     this.scheduler = new SyncScheduler(this.engine, {
@@ -1514,6 +1519,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private recordSyncStart(reason: string, startedAt: number): void {
+    this.lastProgressLogAt = 0;
+    this.statusUploadCount = 0;
+    this.statusDownloadCount = 0;
+    this.statusTransferRate = "";
     const runtime: RuntimeDiagnosticsState = {
       ...this.settings.runtime,
       lastSyncReason: reason,
@@ -1530,6 +1539,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       ...this.settings,
       runtime
     };
+    this.log(`${friendlySyncReason(reason)} sync started.`);
     void this.saveRuntimeDiagnostics();
   }
 
@@ -1585,6 +1595,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       ...this.settings,
       runtime
     };
+    if (failed) {
+      this.log(`${friendlySyncReason(details.reason)} sync stopped with an issue: ${runtime.lastSyncError || runtime.lastSyncMessage}`);
+    } else {
+      this.log(`${friendlySyncReason(details.reason)} sync finished. ${runtime.lastSyncMessage || "No remaining work reported."}`);
+    }
     void this.saveRuntimeDiagnostics();
   }
 
@@ -1793,37 +1808,159 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.statusPresenter?.set(message);
   }
 
+  private reportSyncProgress(progress: SyncProgress): void {
+    switch (progress.phase) {
+      case "inspect-start":
+        this.statusTransferRate = "";
+        this.setStatus("Checking server");
+        this.logProgress("Checking the CouchDB server before syncing.", true);
+        return;
+      case "inspect-complete":
+        this.statusTransferRate = "";
+        this.setStatus("Server checked");
+        this.logProgress(`CouchDB is reachable. The remote database currently has ${progress.documentCount} document${progress.documentCount === 1 ? "" : "s"}.`, true);
+        return;
+      case "push-start":
+        this.statusUploadCount = 0;
+        this.statusTransferRate = "";
+        this.setStatus(`Upload 0/${progress.total}`);
+        this.logProgress(`Starting upload check for ${progress.total} queued file${progress.total === 1 ? "" : "s"}. Unchanged files will be skipped.`, true);
+        return;
+      case "push-file-start":
+        this.statusTransferRate = "";
+        this.setStatus(`Upload ${progress.completed}/${progress.total}`);
+        if (progress.completed === 0 || progress.completed % 25 === 0) {
+          this.logProgress(
+            `Working through the upload queue: checking file ${progress.completed + 1} of ${progress.total}.`,
+            progress.completed === 0
+          );
+        }
+        return;
+      case "push-file-complete":
+        this.statusUploadCount = progress.pushed + progress.deleted;
+        this.statusTransferRate = formatRate(progress.bytes, progress.startedAt);
+        this.setStatus(`Upload ${progress.completed}/${progress.total} · ${formatRate(progress.bytes, progress.startedAt)}`);
+        if (progress.completed === progress.total || progress.completed % 10 === 0) {
+          this.logProgress(
+            `Upload progress: checked ${progress.completed} of ${progress.total} file${progress.total === 1 ? "" : "s"} (${formatBytes(progress.bytes)} read, ${formatRate(progress.bytes, progress.startedAt)}).`,
+            true
+          );
+        }
+        return;
+      case "push-complete":
+        this.statusUploadCount = progress.pushed + progress.deleted;
+        this.statusTransferRate = formatRate(progress.bytes, progress.startedAt);
+        this.setStatus(`Upload done · ${formatRate(progress.bytes, progress.startedAt)}`);
+        this.logProgress(
+          `Upload step finished: ${progress.pushed} uploaded, ${progress.deleted} deleted, ${progress.skipped} unchanged, ${progress.failed} failed (${formatBytes(progress.bytes)} read, ${formatRate(progress.bytes, progress.startedAt)}).`,
+          true
+        );
+        return;
+      case "pull-start":
+        this.statusTransferRate = "";
+        this.setStatus("Checking downloads");
+        this.logProgress("Checking for changes from other devices.", true);
+        return;
+      case "pull-batch":
+        this.statusDownloadCount = progress.completed;
+        this.statusTransferRate = formatRate(progress.bytes, progress.startedAt);
+        this.setStatus(`Down ${progress.completed}/${progress.total} · ${formatRate(progress.bytes, progress.startedAt)}`);
+        this.logProgress(
+          `Download progress: cached ${progress.completed} of ${progress.total} remote change${progress.total === 1 ? "" : "s"} (${formatBytes(progress.bytes)} received, ${formatRate(progress.bytes, progress.startedAt)}).`,
+          progress.completed === progress.total || progress.completed % 25 === 0
+        );
+        return;
+      case "pull-complete":
+        this.statusDownloadCount = progress.total;
+        this.statusTransferRate = progress.total > 0 ? formatRate(progress.bytes, progress.startedAt) : "";
+        this.setStatus(progress.total > 0 ? `Down done · ${formatRate(progress.bytes, progress.startedAt)}` : "No downloads");
+        this.logProgress(
+          progress.total > 0
+            ? `Download step finished: ${progress.total} remote change${progress.total === 1 ? "" : "s"} cached locally (${formatBytes(progress.bytes)} received, ${formatRate(progress.bytes, progress.startedAt)}).`
+            : "Download step finished: no remote changes found.",
+          true
+        );
+        return;
+      case "apply-start":
+        this.statusTransferRate = "";
+        this.setStatus(`Apply ${progress.pending}`);
+        this.logProgress(`Applying ${progress.pending} downloaded file${progress.pending === 1 ? "" : "s"} into the vault with backups before changes.`, true);
+        return;
+    }
+  }
+
+  private logProgress(message: string, important = false): void {
+    const now = Date.now();
+    if (!important && now - this.lastProgressLogAt < 10_000) {
+      return;
+    }
+    this.lastProgressLogAt = now;
+    this.log(message);
+    void this.saveRuntimeDiagnostics();
+  }
+
   private compactStatus(message: string): string {
     const trimmed = message.trim();
     if (!trimmed) {
-      return "Ready";
+      return this.formatStatusBar("Ready");
     }
     if (/loaded/i.test(trimmed)) {
-      return "Loaded";
+      return this.formatStatusBar("Loaded");
     }
     if (/ready|quiet|no action/i.test(trimmed)) {
-      return "Ready";
+      return this.formatStatusBar("Ready");
     }
     if (/batching/i.test(trimmed)) {
       const seconds = trimmed.match(/(\d+)s/)?.[1];
-      return seconds ? `Batch ${seconds}s` : "Batching";
+      return this.formatStatusBar(seconds ? `Batch ${seconds}s` : "Batching");
+    }
+    const upload = trimmed.match(/^Upload(?:ing)?\s+(\d+)\/(\d+)(?:\s+·\s+(.+))?$/i);
+    if (upload) {
+      return this.formatStatusBar("Uploading", upload[3]);
+    }
+    const download = trimmed.match(/^Down(?:load)?\s+(\d+)\/(\d+)(?:\s+·\s+(.+))?$/i);
+    if (download) {
+      return this.formatStatusBar("Downloading", download[3]);
+    }
+    if (/upload done/i.test(trimmed)) {
+      const rate = trimmed.match(/·\s+(.+)$/)?.[1];
+      return this.formatStatusBar("Uploaded", rate);
+    }
+    if (/down done/i.test(trimmed)) {
+      const rate = trimmed.match(/·\s+(.+)$/)?.[1];
+      return this.formatStatusBar("Downloaded", rate);
+    }
+    if (/checking server/i.test(trimmed)) {
+      return this.formatStatusBar("Checking");
+    }
+    if (/checking downloads/i.test(trimmed)) {
+      return this.formatStatusBar("Checking");
+    }
+    if (/^apply \d+/i.test(trimmed)) {
+      return this.formatStatusBar("Applying");
     }
     if (/^Pushed \d+\. Pulled \d+/i.test(trimmed)) {
-      return "Synced";
+      return this.formatStatusBar("Synced");
     }
     if (/sync is running|sync queued|connecting|checking|retrying|scanning/i.test(trimmed)) {
-      return "Syncing";
+      return this.formatStatusBar("Syncing");
     }
     if (/copied|uri ready|imported|connected|updated|passed|written/i.test(trimmed)) {
-      return "OK";
+      return this.formatStatusBar("OK");
     }
     if (/offline/i.test(trimmed)) {
-      return "Offline";
+      return this.formatStatusBar("Offline");
     }
     if (/failed|error|attention|could not|missing|locked|rejected|blocked/i.test(trimmed)) {
-      return "Issue";
+      return this.formatStatusBar("Issue");
     }
-    return trimmed.length > 18 ? `${trimmed.slice(0, 17).trim()}...` : trimmed;
+    return this.formatStatusBar(trimmed.length > 18 ? `${trimmed.slice(0, 17).trim()}...` : trimmed);
+  }
+
+  private formatStatusBar(status: string, rate = this.statusTransferRate): string {
+    const counts = `(${this.statusUploadCount}U/${this.statusDownloadCount}D)`;
+    const speed = rate && /KBps$/i.test(rate.trim()) ? ` ${rate.trim()}` : "";
+    return `${status} ${counts}${speed}`;
   }
 
   private log(message: string): void {
@@ -1834,7 +1971,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         message: safeMessage
       },
       ...(this.settings.runtime.activityLog ?? [])
-    ].slice(0, 20);
+    ].slice(0, 60);
     this.settings = {
       ...this.settings,
       runtime: {
@@ -1857,4 +1994,47 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       this.log(`Preview ${preview.status}: ${preview.path} (${preview.byteLength} bytes, ${preview.chunkCount} chunks).${detail}`);
     }
   }
+}
+
+function friendlySyncReason(reason: string): string {
+  switch (reason) {
+    case "manual":
+      return "Manual";
+    case "startup":
+      return "Startup";
+    case "periodic":
+      return "Periodic";
+    case "vault-change":
+      return "Vault change";
+    case "setup-import":
+      return "Setup import";
+    case "setup-qr-import":
+      return "QR setup import";
+    default:
+      return reason || "Sync";
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
+  if (bytes < 1000) {
+    return `${Math.round(bytes)} B`;
+  }
+  const kb = bytes / 1000;
+  if (kb < 1000) {
+    return `${kb.toFixed(kb < 10 ? 1 : 0)} KB`;
+  }
+  const mb = kb / 1000;
+  return `${mb.toFixed(mb < 10 ? 1 : 0)} MB`;
+}
+
+function formatRate(bytes: number, startedAt: number): string {
+  const elapsedSeconds = Math.max(0.5, (Date.now() - startedAt) / 1000);
+  const kbPerSecond = Math.max(0, bytes / 1000 / elapsedSeconds);
+  if (kbPerSecond < 10) {
+    return `${kbPerSecond.toFixed(1)} KBps`;
+  }
+  return `${Math.round(kbPerSecond)} KBps`;
 }

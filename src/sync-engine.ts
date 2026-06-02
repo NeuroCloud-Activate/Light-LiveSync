@@ -39,6 +39,70 @@ export type AutoApplyOutcome = {
   failed: number;
 };
 
+export type SyncProgress =
+  | {
+      phase: "inspect-start";
+      reason: SyncReason;
+    }
+  | {
+      phase: "inspect-complete";
+      databaseName: string;
+      documentCount: number;
+    }
+  | {
+      phase: "push-start";
+      total: number;
+    }
+  | {
+      phase: "push-file-start";
+      completed: number;
+      total: number;
+      path: string;
+    }
+  | {
+      phase: "push-file-complete";
+      completed: number;
+      total: number;
+      path: string;
+      pushed: number;
+      deleted: number;
+      skipped: number;
+      failed: number;
+      bytes: number;
+      startedAt: number;
+    }
+  | {
+      phase: "push-complete";
+      total: number;
+      pushed: number;
+      deleted: number;
+      skipped: number;
+      failed: number;
+      bytes: number;
+      startedAt: number;
+    }
+  | {
+      phase: "pull-start";
+      since: string;
+    }
+  | {
+      phase: "pull-batch";
+      completed: number;
+      total: number;
+      bytes: number;
+      startedAt: number;
+    }
+  | {
+      phase: "pull-complete";
+      total: number;
+      bytes: number;
+      startedAt: number;
+    }
+  | {
+      phase: "apply-start";
+      pending: number;
+    };
+
 export type SyncRemoteClient = Pick<
   CouchDbClient,
   "ensureDatabase" | "ensureSyncParameters" | "inspect" | "getChangesSince" | "deleteLiveSyncDocument" | "putLiveSyncBundle"
@@ -120,6 +184,7 @@ export type SyncEngineHost = {
   isNetworkLikelyOnline?(): boolean;
   yieldToUi?(): Promise<void>;
   log(message: string): void;
+  reportProgress?(progress: SyncProgress): void;
 };
 
 export class LightweightSyncEngine {
@@ -176,9 +241,15 @@ export class LightweightSyncEngine {
 
     const client = this.createRemoteClient(settings);
     const inspectStartedAt = Date.now();
+    this.host.reportProgress?.({ phase: "inspect-start", reason });
     const inspection = await client.inspect();
     metrics.inspectMs = elapsedMs(inspectStartedAt);
     await this.host.updateRemoteInspection(inspection);
+    this.host.reportProgress?.({
+      phase: "inspect-complete",
+      databaseName: inspection.databaseName,
+      documentCount: inspection.documentCount
+    });
 
     if (!inspection.syncParametersPresent) {
       return {
@@ -254,12 +325,23 @@ export class LightweightSyncEngine {
     localStore: LocalDocumentStore
   ): Promise<PulledRemoteChanges> {
     const checkpoint = await localStore.getCheckpoint();
+    this.host.reportProgress?.({ phase: "pull-start", since: checkpoint.lastRemoteSeq });
+    const pullStartedAt = Date.now();
     const pulled = await client.getChangesSince(checkpoint.lastRemoteSeq, 100);
     let summary = await localStore.getSummary();
+    let pulledBytes = 0;
     for (let index = 0; index < pulled.changes.length; index += REMOTE_CACHE_BATCH_SIZE) {
       const batch = pulled.changes.slice(index, index + REMOTE_CACHE_BATCH_SIZE);
       await this.host.yieldToUi?.();
       summary = await localStore.cacheRemoteChanges(batch);
+      pulledBytes += estimatedJsonBytes(batch);
+      this.host.reportProgress?.({
+        phase: "pull-batch",
+        completed: Math.min(index + batch.length, pulled.changes.length),
+        total: pulled.changes.length,
+        bytes: pulledBytes,
+        startedAt: pullStartedAt
+      });
       await this.host.yieldToUi?.();
     }
     if (pulled.changes.length === 0 && pulled.lastSeq !== checkpoint.lastRemoteSeq) {
@@ -267,6 +349,12 @@ export class LightweightSyncEngine {
       summary = await localStore.getSummary();
     }
     await this.host.updateLocalQueue(summary);
+    this.host.reportProgress?.({
+      phase: "pull-complete",
+      total: pulled.changes.length,
+      bytes: pulledBytes,
+      startedAt: pullStartedAt
+    });
     return {
       pulledCount: pulled.changes.length,
       summary
@@ -277,6 +365,9 @@ export class LightweightSyncEngine {
     settings: LightweightLiveSyncSettings,
     summary: LocalStoreSummary
   ): Promise<AutoApplyOutcome | undefined> {
+    if (settings.autoApplyPull && summary.pendingApply > 0) {
+      this.host.reportProgress?.({ phase: "apply-start", pending: summary.pendingApply });
+    }
     return settings.autoApplyPull && summary.pendingApply > 0
       ? this.host.applyPulledChanges(settings.couchDb.database)
       : undefined;
@@ -361,7 +452,15 @@ export class LightweightSyncEngine {
       return outcome;
     }
 
-    for (const change of pending) {
+    const pushStartedAt = Date.now();
+    this.host.reportProgress?.({ phase: "push-start", total: pending.length });
+    for (const [index, change] of pending.entries()) {
+      this.host.reportProgress?.({
+        phase: "push-file-start",
+        completed: index,
+        total: pending.length,
+        path: change.path
+      });
       await this.host.yieldToUi?.();
       const single = await this.pushOneLocalChange(client, localStore, settings, change.path, change.deleted, change.attempts);
       await this.host.yieldToUi?.();
@@ -374,7 +473,29 @@ export class LightweightSyncEngine {
       outcome.remoteDocsConflicts += single.remoteDocsConflicts;
       outcome.localBytesRead += single.localBytesRead;
       outcome.chunkDocsBuilt += single.chunkDocsBuilt;
+      this.host.reportProgress?.({
+        phase: "push-file-complete",
+        completed: index + 1,
+        total: pending.length,
+        path: change.path,
+        pushed: outcome.pushed,
+        deleted: outcome.deleted,
+        skipped: outcome.skipped,
+        failed: outcome.failed,
+        bytes: outcome.localBytesRead,
+        startedAt: pushStartedAt
+      });
     }
+    this.host.reportProgress?.({
+      phase: "push-complete",
+      total: pending.length,
+      pushed: outcome.pushed,
+      deleted: outcome.deleted,
+      skipped: outcome.skipped,
+      failed: outcome.failed,
+      bytes: outcome.localBytesRead,
+      startedAt: pushStartedAt
+    });
     return outcome;
   }
 
@@ -506,5 +627,13 @@ export class LightweightSyncEngine {
 
   private createRemoteClient(settings: LightweightLiveSyncSettings): SyncRemoteClient {
     return this.host.createRemoteClient?.(settings) ?? new CouchDbClient(settings.couchDb);
+  }
+}
+
+function estimatedJsonBytes(value: unknown): number {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  } catch {
+    return 0;
   }
 }
