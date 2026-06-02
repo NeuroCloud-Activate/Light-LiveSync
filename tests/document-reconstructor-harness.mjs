@@ -20,6 +20,12 @@ class MemoryStore {
   async getCachedDocuments(ids) {
     return new Map(ids.map((id) => [id, this.chunks.get(id)]).filter((entry) => entry[1]));
   }
+
+  async cacheRemoteDocuments(docs) {
+    for (const doc of docs) {
+      this.chunks.set(doc._id, chunk(doc._id, doc.data));
+    }
+  }
 }
 
 const options = {
@@ -121,6 +127,55 @@ assert.equal(binaryPreview.status, "ready");
 assert.equal(binaryPreview.contentType, "binary");
 assert.deepEqual([...new Uint8Array(binaryPreview.content)], [1, 2, 3, 4]);
 
+let missingChunkRepairCalls = 0;
+const repairedPreview = await new DocumentReconstructor(
+  new MemoryStore(),
+  options,
+  {
+    loadMissingChunks: async (ids) => {
+      missingChunkRepairCalls += 1;
+      return new Map(ids.map((id) => [id, { _id: id, type: "leaf", data: id.endsWith("a") ? "fixed " : "chunks" }]));
+    }
+  }
+).preview(
+  cached({
+    _id: "notes/repaired.md",
+    path: "notes/repaired.md",
+    type: "plain",
+    children: ["h:repair-a", "h:repair-b"],
+    ctime: 1,
+    mtime: 2,
+    size: 12,
+    eden: {}
+  })
+);
+
+assert.equal(repairedPreview.status, "ready");
+assert.equal(repairedPreview.content, "fixed chunks");
+assert.equal(missingChunkRepairCalls, 1);
+
+const stillMissingPreview = await new DocumentReconstructor(
+  new MemoryStore(),
+  options,
+  {
+    loadMissingChunks: async () => new Map()
+  }
+).preview(
+  cached({
+    _id: "notes/missing.md",
+    path: "notes/missing.md",
+    type: "plain",
+    children: ["h:missing"],
+    ctime: 1,
+    mtime: 2,
+    size: 7,
+    eden: {}
+  })
+);
+
+assert.equal(stillMissingPreview.status, "missing-chunks");
+assert.deepEqual(stillMissingPreview.missingChunkIds, ["h:missing"]);
+
 let reconstructionYields = 0;
 const chunkIds = Array.from({ length: 9 }, (_, index) => `h:large-${index}`);
 const largeChunks = Object.fromEntries(chunkIds.map((id, index) => [id, chunk(id, `${index}`)]));
@@ -149,4 +204,11 @@ assert.equal(yieldingPreview.ready, 1);
 assert.equal(yieldingPreview.previews[0].content, "012345678");
 assert.equal(reconstructionYields, 4);
 
-console.log(JSON.stringify({ ok: true, eden: true, binary: true, reconstructionYields }, null, 2));
+console.log(JSON.stringify({
+  ok: true,
+  eden: true,
+  binary: true,
+  missingChunkRepairCalls,
+  stillMissing: stillMissingPreview.status,
+  reconstructionYields
+}, null, 2));

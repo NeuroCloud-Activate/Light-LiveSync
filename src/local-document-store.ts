@@ -238,6 +238,36 @@ export class LocalDocumentStore {
     return this.getSummary();
   }
 
+  async cacheRemoteDocuments(docs: LiveSyncDocument[], seq = ""): Promise<void> {
+    if (docs.length === 0) {
+      return;
+    }
+
+    const db = await this.requireDb();
+    const pulledAt = Date.now();
+    const transaction = db.transaction(DOCUMENT_STORE, "readwrite");
+    const done = txDone(transaction);
+    const documents = transaction.objectStore(DOCUMENT_STORE);
+
+    for (const doc of docs) {
+      const previous = await dbRequest<CachedRemoteDocument | undefined>(documents.get(doc._id));
+      const cached: CachedRemoteDocument = {
+        id: doc._id,
+        rev: doc._rev ?? previous?.rev ?? "",
+        seq: seq || previous?.seq || "",
+        pulledAt,
+        stagedAt: previous?.stagedAt ?? 0,
+        appliedAt: previous?.appliedAt ?? 0,
+        deleted: !!doc._deleted,
+        kind: classifyDocument(doc._id, doc),
+        doc
+      };
+      documents.put(cached);
+    }
+
+    await done;
+  }
+
   async getPendingApplyBatch(limit: number): Promise<CachedRemoteDocument[]> {
     return this.getPendingFileBatch(limit, "appliedAt");
   }

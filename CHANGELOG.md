@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.23
+
+- Repairs pending remote files whose chunk records are missing from the local apply cache by fetching those referenced chunks directly from CouchDB.
+- Caches repaired chunk records locally so queued remote applies can finish without waiting for old chunk changes to reappear in the changes feed.
+- Logs how many missing content chunks were recovered and whether any referenced chunks are still absent on the server.
+
 ## 0.1.22
 
 - Clears excluded remote apply records before missing chunks can leave them waiting.

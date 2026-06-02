@@ -112,6 +112,7 @@ export type SyncRemoteClient = Pick<
   | "ensureSyncParameters"
   | "inspect"
   | "getChangesSince"
+  | "getDocumentsByIds"
   | "deleteLiveSyncDocument"
   | "putLiveSyncBundle"
   | "getVersionDocumentsForFile"
@@ -195,7 +196,7 @@ export type SyncEngineHost = {
   getLocalStore(databaseName: string): LocalDocumentStore;
   readLocalFileSnapshot(path: string): Promise<LocalFileSnapshot | undefined>;
   buildLocalPushBundle(snapshot: LocalFileSnapshot, options: LiveSyncBuildOptions): Promise<LiveSyncPushBundle>;
-  applyPulledChanges(databaseName: string): Promise<AutoApplyOutcome>;
+  applyPulledChanges(databaseName: string, client?: SyncRemoteClient): Promise<AutoApplyOutcome>;
   createRemoteClient?(settings: LightweightLiveSyncSettings): SyncRemoteClient;
   isNetworkLikelyOnline?(): boolean;
   yieldToUi?(): Promise<void>;
@@ -308,7 +309,7 @@ export class LightweightSyncEngine {
     metrics.pulledChanges = pulled.pulledCount;
 
     const applyStartedAt = Date.now();
-    const applied = await this.maybeAutoApplyPull(settings, pulled.summary);
+    const applied = await this.maybeAutoApplyPull(settings, pulled.summary, client);
     metrics.applyMs = elapsedMs(applyStartedAt);
     if (applied) {
       metrics.appliedFiles = applied.applied;
@@ -383,13 +384,14 @@ export class LightweightSyncEngine {
 
   private async maybeAutoApplyPull(
     settings: LightweightLiveSyncSettings,
-    summary: LocalStoreSummary
+    summary: LocalStoreSummary,
+    client: SyncRemoteClient
   ): Promise<AutoApplyOutcome | undefined> {
     if (settings.autoApplyPull && summary.pendingApply > 0) {
       this.host.reportProgress?.({ phase: "apply-start", pending: summary.pendingApply });
     }
     return settings.autoApplyPull && summary.pendingApply > 0
-      ? this.host.applyPulledChanges(settings.couchDb.database)
+      ? this.host.applyPulledChanges(settings.couchDb.database, client)
       : undefined;
   }
 

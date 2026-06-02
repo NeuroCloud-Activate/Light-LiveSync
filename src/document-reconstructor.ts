@@ -71,6 +71,7 @@ type ChunkLoadResult =
 type ReconstructionRuntimeOptions = {
   yieldToUi?(): Promise<void>;
   yieldEveryChunks?: number;
+  loadMissingChunks?(ids: string[]): Promise<Map<string, LiveSyncChunkDocument>>;
 };
 
 function byteLength(value: string): number {
@@ -234,10 +235,39 @@ export class DocumentReconstructor {
 
   private async loadChunks(doc: LiveSyncFileDocument): Promise<ChunkLoadResult> {
     const children = doc.children ?? [];
-    const cachedChunks = await this.store.getCachedDocuments(children);
+    let cachedChunks = await this.store.getCachedDocuments(children);
     const chunks: LiveSyncChunkDocument[] = [];
     const missingChunkIds: string[] = [];
 
+    for (const childId of children) {
+      const chunk = cachedChunks.get(childId)?.doc ?? edenChunk(doc, childId);
+      if (!chunk) {
+        missingChunkIds.push(childId);
+      }
+    }
+
+    if (missingChunkIds.length > 0 && this.runtime?.loadMissingChunks) {
+      const repairedChunks = await this.runtime.loadMissingChunks(missingChunkIds);
+      if (repairedChunks.size > 0) {
+        cachedChunks = new Map(cachedChunks);
+        for (const [id, chunk] of repairedChunks) {
+          cachedChunks.set(id, {
+            id,
+            rev: chunk._rev ?? "",
+            seq: "",
+            pulledAt: Date.now(),
+            stagedAt: 0,
+            appliedAt: 0,
+            deleted: false,
+            kind: "chunk",
+            doc: chunk
+          });
+        }
+      }
+    }
+
+    chunks.length = 0;
+    missingChunkIds.length = 0;
     for (const [index, childId] of children.entries()) {
       const chunk = cachedChunks.get(childId)?.doc ?? edenChunk(doc, childId);
       if (!chunk) {

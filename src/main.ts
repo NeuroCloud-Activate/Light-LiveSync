@@ -38,11 +38,12 @@ import {
   type LightweightLiveSyncSettings
 } from "./settings";
 import { SyncScheduler } from "./scheduler";
-import { LightweightSyncEngine, type SyncOutcome, type SyncProgress } from "./sync-engine";
+import { LightweightSyncEngine, type SyncOutcome, type SyncProgress, type SyncRemoteClient } from "./sync-engine";
 import { OptionalSyncWorkerClient } from "./sync-worker-client";
 import { CalmStatusPresenter } from "./status-presenter";
 import type { LiveSyncBuildOptions, LocalFileSnapshot } from "./livesync-document-builder";
 import { CouchDbClient, CouchDbClientError, type RemoteInspection } from "./couchdb-client";
+import { isLiveSyncChunkDocument, type LiveSyncChunkDocument } from "./livesync-constants";
 import { verifyCouchDbConnection } from "./connection-verifier";
 import { buildRuntimeSmokeCheckReport } from "./runtime-smoke-check";
 import { buildRuntimeCapabilityReport, type RuntimeCapabilitySnapshot } from "./runtime-capabilities";
@@ -141,7 +142,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       getLocalStore: (databaseName) => this.getLocalStore(databaseName),
       readLocalFileSnapshot: (path) => this.readLocalFileSnapshot(path),
       buildLocalPushBundle: (snapshot, options) => this.buildLocalPushBundle(snapshot, options),
-      applyPulledChanges: (databaseName) => this.applyPulledChanges(databaseName),
+      applyPulledChanges: (databaseName, client) => this.applyPulledChanges(databaseName, client),
       isNetworkLikelyOnline: () => this.isNetworkLikelyOnline(),
       yieldToUi: () => this.yieldToUi(),
       log: (message) => this.log(message),
@@ -1304,17 +1305,25 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
 
     const store = this.getLocalStore(this.settings.couchDb.database);
+    const client = new CouchDbClient(settings.couchDb);
     return {
       store,
-      reconstructor: new DocumentReconstructor(store, this.documentTransformOptions(), { yieldToUi: () => this.yieldToUi() })
+      reconstructor: new DocumentReconstructor(store, this.documentTransformOptions(), {
+        yieldToUi: () => this.yieldToUi(),
+        loadMissingChunks: (ids) => this.loadAndCacheMissingChunks(store, client, ids)
+      })
     };
   }
 
-  private async applyPulledChanges(databaseName: string): Promise<LiveVaultApplyResult> {
+  private async applyPulledChanges(databaseName: string, client?: SyncRemoteClient): Promise<LiveVaultApplyResult> {
     const store = this.getLocalStore(databaseName);
+    const remoteClient = client ?? new CouchDbClient(this.getRuntimeSettings().couchDb);
     const context: PullOperationContext = {
       store,
-      reconstructor: new DocumentReconstructor(store, this.documentTransformOptions(), { yieldToUi: () => this.yieldToUi() })
+      reconstructor: new DocumentReconstructor(store, this.documentTransformOptions(), {
+        yieldToUi: () => this.yieldToUi(),
+        loadMissingChunks: (ids) => this.loadAndCacheMissingChunks(store, remoteClient, ids)
+      })
     };
     const result = await this.applyPreviewBatchToVault(context, this.applyBatchLimit());
     if (hasLiveApplyActivity(result)) {
@@ -1323,6 +1332,39 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       );
     }
     return result;
+  }
+
+  private async loadAndCacheMissingChunks(
+    store: LocalDocumentStore,
+    client: Pick<SyncRemoteClient, "getDocumentsByIds">,
+    ids: string[]
+  ): Promise<Map<string, LiveSyncChunkDocument>> {
+    const uniqueIds = [...new Set(ids.filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      return new Map();
+    }
+
+    const found = new Map<string, LiveSyncChunkDocument>();
+    const batchSize = Math.max(1, Math.min(50, Math.round(this.settings.maxStorageApplyConcurrency || DEFAULT_SETTINGS.maxStorageApplyConcurrency)));
+    for (let index = 0; index < uniqueIds.length; index += batchSize) {
+      await this.yieldToUi();
+      const batch = uniqueIds.slice(index, index + batchSize);
+      const docs = await client.getDocumentsByIds(batch);
+      const chunks = [...docs.values()].filter(isLiveSyncChunkDocument);
+      await store.cacheRemoteDocuments(chunks);
+      for (const chunk of chunks) {
+        found.set(chunk._id, chunk);
+      }
+      await this.yieldToUi();
+    }
+
+    if (found.size > 0 || uniqueIds.length > 0) {
+      const missing = uniqueIds.length - found.size;
+      this.log(
+        `Recovered ${found.size} missing content chunk${found.size === 1 ? "" : "s"} from CouchDB for pending remote files${missing > 0 ? `; ${missing} chunk${missing === 1 ? "" : "s"} still missing on the server` : ""}.`
+      );
+    }
+    return found;
   }
 
   private async applyPreviewBatchToVault(
