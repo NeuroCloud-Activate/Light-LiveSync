@@ -10,6 +10,7 @@ const tsHarnesses = [
   "direct-setup-harness.mjs",
   "document-reconstructor-harness.mjs",
   "live-vault-applier-harness.mjs",
+  "recovery-backups-harness.mjs",
   "runtime-capabilities-harness.mjs",
   "runtime-evidence-report-harness.mjs",
   "runtime-smoke-check-harness.mjs",

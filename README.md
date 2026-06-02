@@ -10,13 +10,13 @@ It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmr
 - Keeps compatibility with the familiar `obsidian://setuplivesync?settings=...` setup URI flow.
 - Requires end-to-end encryption by default.
 - Batches edits for 60 seconds by default so rapid typing does not spam the server.
-- Scans the current vault when you press **Sync now**, so first-time uploads do not depend on fresh edit events.
-- Automatically scans and queues the current vault on first setup/startup sync when the remote vault is empty.
-- Includes vault configuration, hidden files, and other plugin data in manual full-vault sync.
+- Automatically scans and queues the current vault on first setup/startup sync when the remote vault is empty, so first-time uploads do not depend on fresh edit events or manual intervention.
+- **Sync now** also scans the current vault before syncing, which is useful when you want an immediate full-vault check.
+- Includes vault configuration, hidden files, and other plugin data in automatic and manual full-vault checks.
 - Restores saved credentials automatically on app start so mobile sync can resume without a repeated credential prompt.
 - Syncs vault configuration and plugin data along with notes.
 - Uses periodic sync as a fallback when mobile backgrounding or missed file events get in the way.
-- Automatically merges ordinary text edits and keeps recovery backups.
+- Automatically merges ordinary text edits, keeps recovery backups, and lets you restore from those backups in settings.
 - Keeps the status UI calm, small, and out of your way.
 - Includes runtime checks and a non-secret evidence report for troubleshooting.
 
@@ -112,14 +112,6 @@ Security is a core part of the design, not an advanced mode.
 
 Use HTTPS, a trusted VPN, or another protected network path for CouchDB. Vault E2EE protects note content, but CouchDB Basic Authentication over plain HTTP can still expose the CouchDB username and password on the network.
 
-Recommended CouchDB posture:
-
-- Use a real CouchDB admin account.
-- Do not expose CouchDB with open administrative access.
-- Keep database access restricted with `_security` members or roles.
-- Give sync users only the access they need.
-- Avoid public exposure unless protected by TLS, VPN, firewall rules, or a reverse proxy.
-
 ## Lightweight Sync Design
 
 The plugin is optimized around minimal work and minimal data movement.
@@ -130,8 +122,8 @@ The plugin is optimized around minimal work and minimal data movement.
 - Each sync can upload a large batch of changed files by default, which helps first syncs and full-vault updates finish quickly.
 - Large work yields back to Obsidian so the app can stay responsive.
 - A background worker is used when available, with a cooperative main-thread fallback.
-- Pulled CouchDB changes are cached locally in small batches.
-- Remote changes apply one file at a time with recovery backups.
+- Pulls large batches of CouchDB changes for faster catch-up, then caches them locally in bounded chunks so the UI can stay responsive.
+- Remote changes apply in batches with recovery backups.
 - Failed uploads use capped backoff and do not block unrelated due changes.
 - Automatic sync pauses when the runtime reports offline.
 - Periodic sync acts as the fallback safety net.
@@ -147,39 +139,3 @@ The plugin is designed to be patient with unstable networks.
 - It uses bounded retries instead of tight retry loops.
 - Manual sync remains available when you want to force a retry.
 - Runtime status and evidence reports help confirm whether queues are settled.
-
-## Build And Test
-
-```sh
-npm install
-npm run typecheck
-npm test
-npm run build
-```
-
-Or run the full local gate:
-
-```sh
-npm run check
-```
-
-`npm test` covers setup URI and QR compatibility, direct CouchDB setup behavior, connection role checks, encrypted credential handling, session cache safety, desktop/mobile runtime reporting, evidence report redaction, scheduler backoff, sync batching, first-upload handling, vault scan rules, worker fallback, reconstruction, text merge, status presentation, and bundle shape.
-
-Build and verify a release folder plus zip:
-
-```sh
-npm run package
-```
-
-Release files are:
-
-- `manifest.json`
-- `main.js`
-- `sync-worker.js`
-- `styles.css`
-
-## Mobile Testing
-
-The plugin is built to load on Obsidian desktop and mobile, but real mobile sync should still be tested on a real iOS or Android device before you rely on it everywhere.
-
-For a practical mobile check, install the release build on the device, import the setup URI, create and edit a few notes, sync in both directions, close and reopen the app, and confirm sync resumes without a repeated credential prompt. Record only non-secret observations: device type, Obsidian version, plugin version, connection type, sync result, and whether queues returned to zero.

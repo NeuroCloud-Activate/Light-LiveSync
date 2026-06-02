@@ -66,6 +66,11 @@ import {
   shouldSyncVaultPath,
   type VaultSyncPathOptions
 } from "./vault-scan";
+import {
+  listRecoveryBackups,
+  restoreRecoveryBackup,
+  type RecoveryBackupEntry
+} from "./recovery-backups";
 
 type CommandSpec = {
   id: string;
@@ -225,6 +230,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     };
     if (loaded?.maxPushChangesPerSync === undefined || loaded.maxPushChangesPerSync <= 4) {
       this.settings.maxPushChangesPerSync = DEFAULT_SETTINGS.maxPushChangesPerSync;
+    }
+    if (loaded?.maxStorageApplyConcurrency === undefined || loaded.maxStorageApplyConcurrency <= 1) {
+      this.settings.maxStorageApplyConcurrency = DEFAULT_SETTINGS.maxStorageApplyConcurrency;
     }
   }
 
@@ -688,6 +696,27 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.setStatus("Activity log cleared");
   }
 
+  async listRecoveryBackups(limit = 10): Promise<RecoveryBackupEntry[]> {
+    return listRecoveryBackups(this.app.vault.adapter, this.conflictFolder(), limit);
+  }
+
+  async restoreRecoveryBackup(entry: RecoveryBackupEntry): Promise<void> {
+    try {
+      const result = await restoreRecoveryBackup(this.app.vault.adapter, entry, this.conflictFolder());
+      this.queueVaultPath(result.restoredPath);
+      const backupMessage = result.createdPreRestoreBackup
+        ? ` A fresh backup of the replaced file was kept at ${result.preRestoreBackupPath}.`
+        : "";
+      this.log(`Recovered ${result.restoredPath} from ${entry.backupPath}.${backupMessage}`);
+      this.setStatus("Recovered backup");
+      new Notice(`Recovered ${result.restoredPath}.${backupMessage}`, 12000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Recovery restore failed: ${message}`);
+      new Notice(`Recovery restore failed: ${message}`, 12000);
+    }
+  }
+
   async syncNow(): Promise<void> {
     if (!(await this.ensureCredentialsUnlocked())) {
       return;
@@ -1138,7 +1167,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         return;
       }
 
-      const summary = await context.reconstructor.previewPendingStaging(1);
+      const summary = await context.reconstructor.previewPendingStaging(this.applyBatchLimit());
       await this.updateLocalPreview(summary);
       const result = await applyReadyPreviewsToStaging(
         this.app.vault,
@@ -1165,7 +1194,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         return;
       }
 
-      const result = await this.applyPreviewBatchToVault(context, 1);
+      const result = await this.applyPreviewBatchToVault(context, this.applyBatchLimit());
       const message = `Applied ${result.applied}. Merged: ${result.merged}. Deleted: ${result.deleted}. Backups: ${result.backedUp}. Conflicts: ${result.conflicted}. Failed: ${result.failed}.`;
       this.setStatus(message);
       new Notice(message);
@@ -1210,7 +1239,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       store,
       reconstructor: new DocumentReconstructor(store, this.documentTransformOptions(), { yieldToUi: () => this.yieldToUi() })
     };
-    const result = await this.applyPreviewBatchToVault(context, 1);
+    const result = await this.applyPreviewBatchToVault(context, this.applyBatchLimit());
     if (hasLiveApplyActivity(result)) {
       this.log(`Auto-applied pulled changes. Applied ${result.applied}, merged ${result.merged}, deleted ${result.deleted}, backups ${result.backedUp}, conflicts ${result.conflicted}, failed ${result.failed}.`);
     }
@@ -1232,6 +1261,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     await this.updateLocalLiveApply(result);
     await this.updateLocalQueue(await context.store.getSummary());
     return result;
+  }
+
+  private applyBatchLimit(): number {
+    return Math.max(1, Math.round(this.settings.maxStorageApplyConcurrency || DEFAULT_SETTINGS.maxStorageApplyConcurrency));
   }
 
   private async withSuppressedVaultEvents<T>(operation: () => Promise<T>): Promise<T> {

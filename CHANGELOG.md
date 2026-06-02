@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.12
+
+- Applies pulled remote files in batches by default instead of one-at-a-time.
+- Adds an advanced setting for the maximum remote files applied per sync.
+- Adds Activity-tab recovery controls for restoring files from automatic recovery backups.
+- Cleans up README wording around automatic first sync, batched pull/apply behavior, and unnecessary testing sections.
+
 ## 0.1.11
 
 - Adds punctuation to the plugin manifest description.

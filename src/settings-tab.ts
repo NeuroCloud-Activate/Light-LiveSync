@@ -19,7 +19,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     containerEl.addClass("light-livesync-settings");
     new Setting(containerEl).setName("Light-LiveSync").setHeading();
     containerEl.createEl("p", {
-      text: "A low-noise vault sync setup for CouchDB. Defaults favor encrypted sync, small batches, automatic text merges, and recovery backups."
+      text: "A low-noise vault sync setup for CouchDB. Defaults favor encrypted sync, bounded batches, automatic text merges, and recovery backups."
     });
     this.renderTabs(containerEl);
 
@@ -206,7 +206,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     if (queue.pendingPush > 0) {
       new Setting(containerEl)
         .setName("Local changes are queued")
-        .setDesc(`${queue.pendingPush} local change${queue.pendingPush === 1 ? "" : "s"} will upload in small batches. Sync now if you want to start immediately.`)
+        .setDesc(`${queue.pendingPush} local change${queue.pendingPush === 1 ? "" : "s"} will upload in batched runs. Sync now if you want to start immediately.`)
         .addButton((button) => {
           button.setButtonText("Sync now").setCta().onClick(async () => {
             await this.plugin.syncNow();
@@ -461,15 +461,16 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   private renderSchedulerSection(containerEl: SettingsContainer): void {
     this.section(containerEl, "Advanced sync tuning");
     containerEl.createEl("p", {
-      text: "Defaults are tuned for slow or unreliable connections: changes wait briefly, upload in small groups, and retry later after failures."
+      text: "Defaults are tuned for slow or unreliable connections: changes wait briefly, upload in bounded batches, and retry later after failures."
     });
     this.renderBooleanSetting(containerEl, "Sync on startup", "syncOnStart", "Checks the server once Obsidian opens so this device catches up without you pressing a button.");
     this.renderBooleanSetting(containerEl, "Sync after vault changes", "syncOnSave", "Queues one batched sync after edits, creates, deletes, and renames. It does not sync every keystroke.");
-    this.renderBooleanSetting(containerEl, "Automatically apply pulled files", "autoApplyPull", "Applies one ready remote file per sync. Text differences are merged automatically and a recovery backup is created first.");
+    this.renderBooleanSetting(containerEl, "Automatically apply pulled files", "autoApplyPull", "Applies ready remote files in batches. Text differences are merged automatically and recovery backups are created first.");
     this.renderBooleanSetting(containerEl, "Use background worker", "useBackgroundWorker", "Moves chunking, hashing, and encryption off the main Obsidian thread when the device supports it. If it fails, the plugin falls back automatically.");
     this.renderPeriodicSync(containerEl);
     this.renderNumberSetting(containerEl, "Vault change batch window", "vaultChangeBatchWindowSec", 5, "Seconds to wait after local changes before syncing. Higher values use less data on poor connections.");
     this.renderNumberSetting(containerEl, "Max files uploaded per sync", "maxPushChangesPerSync", 1, "Upper bound for changed files uploaded in one run. The default is high enough for full-vault first syncs while fingerprints skip unchanged files.");
+    this.renderNumberSetting(containerEl, "Max remote files applied per sync", "maxStorageApplyConcurrency", 1, "Upper bound for pulled files written into the vault in one run. Backups are created before overwrite, merge, or delete operations.");
     this.renderNumberSetting(containerEl, "First retry after failed upload", "failedPushRetryBaseSec", 5, "Seconds before retrying a failed upload. The changed file stays queued safely.");
     this.renderNumberSetting(containerEl, "Longest retry delay", "failedPushRetryMaxSec", 30, "Maximum seconds between retry attempts for the same failed upload.");
     this.renderNumberSetting(containerEl, "Sync failure cooldown", "syncFailureCooldownSec", 30, "Seconds automatic sync waits after a failed run before trying again. Manual Sync now can still run immediately.");
@@ -511,7 +512,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   private renderNumberSetting(
     containerEl: SettingsContainer,
     name: string,
-    key: "periodicSyncIntervalSec" | "minimumSyncIntervalMs" | "vaultChangeBatchWindowSec" | "maxPushChangesPerSync" | "failedPushRetryBaseSec" | "failedPushRetryMaxSec" | "syncFailureCooldownSec",
+    key: "periodicSyncIntervalSec" | "minimumSyncIntervalMs" | "vaultChangeBatchWindowSec" | "maxPushChangesPerSync" | "maxStorageApplyConcurrency" | "failedPushRetryBaseSec" | "failedPushRetryMaxSec" | "syncFailureCooldownSec",
     minimum: number,
     description: string
   ): void {
@@ -589,6 +590,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.renderPreviewStatus(containerEl);
     this.renderStagingStatus(containerEl);
     this.renderLiveApplyStatus(containerEl);
+    this.renderRecoveryBackups(containerEl);
   }
 
   private statusSummary(): string {
@@ -729,6 +731,45 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       .setDesc(
         `${formatTime(liveApply.lastAppliedAt)}. Applied ${liveApply.applied}; merged ${liveApply.merged}; deleted ${liveApply.deleted}; backups ${liveApply.backedUp}; unresolved conflicts ${liveApply.conflicted}; failed ${liveApply.failed}.`
       );
+  }
+
+  private renderRecoveryBackups(containerEl: SettingsContainer): void {
+    this.section(containerEl, "Recover from backups");
+    new Setting(containerEl)
+      .setName("Recovery backups")
+      .setDesc("Restore a file from one of the backups created before an overwrite, merge, or delete. If the original file exists, the current version is backed up before restore.")
+      .addButton((button) => {
+        button.setButtonText("Refresh").onClick(() => this.display());
+      });
+
+    const listEl = containerEl.createEl("div");
+    listEl.addClass("light-livesync-recovery-list");
+    listEl.createEl("p", { text: "Scanning recovery backups..." });
+
+    void this.plugin.listRecoveryBackups(10)
+      .then((backups) => {
+        listEl.empty();
+        if (backups.length === 0) {
+          listEl.createEl("p", { text: "No recovery backups found yet." });
+          return;
+        }
+        for (const backup of backups) {
+          new Setting(listEl)
+            .setName(backup.originalPath)
+            .setDesc(`${formatTime(backup.modifiedAt)}. Backup: ${backup.backupPath}. Size: ${formatBytes(backup.size)}.`)
+            .addButton((button) => {
+              button.setButtonText("Restore").onClick(async () => {
+                await this.plugin.restoreRecoveryBackup(backup);
+                this.display();
+              });
+            });
+        }
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        listEl.empty();
+        listEl.createEl("p", { text: `Could not scan recovery backups: ${friendlyError(message)}` });
+      });
   }
 }
 

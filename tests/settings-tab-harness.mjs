@@ -60,6 +60,10 @@ function render(settingsPatch) {
     syncNow() {},
     applyPullToVault() {},
     previewQueuedPull() {},
+    listRecoveryBackups() {
+      return Promise.resolve([]);
+    },
+    restoreRecoveryBackup() {},
     clearActivityLog() {},
     saveSettingsAndReschedule() {},
     resetLocalSyncState() {},
@@ -260,6 +264,9 @@ assert.match(activity, /Direct CouchDB setup failed: HTTP 401/);
 assert.match(activity, /Clear/);
 assert.match(activity, /Last sync workload/);
 assert.match(activity, /Uploaded 1 file \(191 B read locally, 1 chunk doc built\)/);
+assert.match(activity, /Recover from backups/);
+assert.match(activity, /Recovery backups/);
+assert.match(activity, /Refresh/);
 assert.doesNotMatch(activity, /Advanced sync tuning/);
 
 const advanced = render({
@@ -276,6 +283,7 @@ const advanced = render({
 assert.match(advanced, /Advanced sync tuning/);
 assert.match(advanced, /Sync failure cooldown/);
 assert.match(advanced, /Manual Sync now can still run immediately/);
+assert.match(advanced, /Max remote files applied per sync/);
 assert.match(advanced, /Custom request headers/);
 assert.doesNotMatch(advanced, /Remote database/);
 

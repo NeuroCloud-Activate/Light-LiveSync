@@ -124,6 +124,20 @@
   color: var(--text-muted);
 }
 
+.light-livesync-recovery-list {
+  margin: 8px 0 18px;
+  padding: 0;
+}
+
+.light-livesync-recovery-list .setting-item {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.light-livesync-recovery-list p {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
 .light-livesync-command-modal {
   padding-inline: 8px;
 }

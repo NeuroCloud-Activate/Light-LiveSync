@@ -166,6 +166,51 @@ assert.equal(binaryResult.applied, 1);
 assert.deepEqual([...new Uint8Array(vault.files.get("assets/a.bin"))], [1, 2, 3, 4]);
 assert.equal(applyYields, 2);
 
+const batchResult = await applyReadyPreviewsToLiveVault(
+  vault,
+  [
+    {
+      id: "doc-batch-1",
+      rev: "1-b1",
+      path: "batch/one.md",
+      status: "ready",
+      contentType: "text",
+      chunkCount: 1,
+      byteLength: 3,
+      content: "one"
+    },
+    {
+      id: "doc-batch-2",
+      rev: "1-b2",
+      path: "batch/two.md",
+      status: "ready",
+      contentType: "text",
+      chunkCount: 1,
+      byteLength: 3,
+      content: "two"
+    },
+    {
+      id: "doc-batch-3",
+      rev: "1-b3",
+      path: "batch/three.md",
+      status: "ready",
+      contentType: "text",
+      chunkCount: 1,
+      byteLength: 5,
+      content: "three"
+    }
+  ],
+  {
+    configDir: ".obsidian",
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
+  }
+);
+
+assert.equal(batchResult.applied, 3);
+assert.equal(vault.files.get("batch/one.md"), "one");
+assert.equal(vault.files.get("batch/two.md"), "two");
+assert.equal(vault.files.get("batch/three.md"), "three");
+
 console.log(JSON.stringify({
   ok: true,
   merged: writeResult.merged,
@@ -173,5 +218,6 @@ console.log(JSON.stringify({
   conflicts: writeResult.conflicted + deleteResult.conflicted,
   configSynced: vault.files.get(".obsidian/app.json") === "{}",
   binary: true,
+  batchApplied: batchResult.applied,
   applyYields
 }, null, 2));
