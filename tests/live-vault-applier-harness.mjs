@@ -6,15 +6,41 @@ import { applyReadyPreviewsToLiveVault } from "../src/live-vault-applier.ts";
 class MemoryVault {
   files = new Map();
   folders = new Set();
+  adapterOnlyPaths = new Set();
   adapter = {
     exists: async (path) => this.files.has(path) || this.folders.has(path),
     mkdir: async (path) => {
       this.folders.add(path);
+    },
+    read: async (path) => {
+      if (!this.files.has(path)) {
+        throw new Error(`Missing file: ${path}`);
+      }
+      return this.files.get(path);
+    },
+    readBinary: async (path) => {
+      if (!this.files.has(path)) {
+        throw new Error(`Missing file: ${path}`);
+      }
+      const value = this.files.get(path);
+      if (value instanceof ArrayBuffer) {
+        return value;
+      }
+      return new TextEncoder().encode(value).buffer;
+    },
+    write: async (path, content) => {
+      this.files.set(path, content);
+    },
+    writeBinary: async (path, content) => {
+      this.files.set(path, content);
+    },
+    remove: async (path) => {
+      this.files.delete(path);
     }
   };
 
   getAbstractFileByPath(path) {
-    return this.files.has(path) ? { path } : null;
+    return this.files.has(path) && !this.adapterOnlyPaths.has(path) ? { path } : null;
   }
 
   async read(file) {
@@ -137,6 +163,33 @@ assert.equal(configResult.applied, 1);
 assert.equal(configResult.skipped, 0);
 assert.equal(vault.files.get(".obsidian/app.json"), "{}");
 
+vault.files.set(".obsidian/plugins/other-plugin/data.json", "{\"old\":true}");
+vault.adapterOnlyPaths.add(".obsidian/plugins/other-plugin/data.json");
+const adapterOnlyResult = await applyReadyPreviewsToLiveVault(
+  vault,
+  [
+    {
+      id: "doc-adapter-only",
+      rev: "1-adapter-only",
+      path: ".obsidian/plugins/other-plugin/data.json",
+      status: "ready",
+      contentType: "text",
+      chunkCount: 1,
+      byteLength: 13,
+      content: "{\"new\":true}"
+    }
+  ],
+  {
+    configDir: ".obsidian",
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
+  }
+);
+
+assert.equal(adapterOnlyResult.applied, 0);
+assert.equal(adapterOnlyResult.merged, 1);
+assert.equal(adapterOnlyResult.failed, 0);
+assert.equal(vault.files.get(".obsidian/plugins/other-plugin/data.json"), "{\"old\":true}\n{\"new\":true}");
+
 const skipAndWaitResult = await applyReadyPreviewsToLiveVault(
   vault,
   [
@@ -173,6 +226,31 @@ assert.deepEqual(skipAndWaitResult.skippedIds, ["doc-protected-root"]);
 assert.equal(skipAndWaitResult.waiting, 1);
 assert.equal(skipAndWaitResult.waitingReasons.some((reason) => /Missing 1 of 2 chunks/.test(reason)), true);
 assert.equal(skipAndWaitResult.appliedIds.includes("doc-waiting"), false);
+
+const excludedResult = await applyReadyPreviewsToLiveVault(
+  vault,
+  [
+    {
+      id: "doc-excluded",
+      rev: "1-excluded",
+      path: ".obsidian/plugins/Light-LiveSync/Light-LiveSync-main/README.md",
+      status: "ready",
+      contentType: "text",
+      chunkCount: 1,
+      byteLength: 6,
+      content: "remote"
+    }
+  ],
+  {
+    configDir: ".obsidian",
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts",
+    shouldApplyPath: (path) => !path.includes("Light-LiveSync-main")
+  }
+);
+
+assert.equal(excludedResult.skipped, 1);
+assert.deepEqual(excludedResult.skippedIds, ["doc-excluded"]);
+assert.equal(excludedResult.skippedReasons.some((reason) => /Excluded from sync/.test(reason)), true);
 
 const binary = new Uint8Array([1, 2, 3, 4]).buffer;
 let applyYields = 0;
@@ -254,7 +332,9 @@ console.log(JSON.stringify({
   backups: writeResult.backedUp + deleteResult.backedUp,
   conflicts: writeResult.conflicted + deleteResult.conflicted,
   configSynced: vault.files.get(".obsidian/app.json") === "{}",
+  adapterOnlyFilesSync: adapterOnlyResult.failed === 0,
   terminalSkipsClear: skipAndWaitResult.skippedIds.length,
+  excludedRemoteItemsClear: excludedResult.skippedIds.length,
   waitingStaysQueued: skipAndWaitResult.waiting,
   binary: true,
   batchApplied: batchResult.applied,

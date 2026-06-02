@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.21
+
+- Excludes copied Light-LiveSync source folders and common development folders from vault sync and remote apply.
+- Applies hidden/config files through the vault adapter when Obsidian's normal file lookup does not expose them, avoiding `File already exists` apply failures.
+- Automatically marks excluded remote apply records resolved with a plain-language Activity log reason.
+
 ## 0.1.20
 
 - Improves automatic remote apply resolution so terminal skipped items are marked resolved instead of repeating forever.

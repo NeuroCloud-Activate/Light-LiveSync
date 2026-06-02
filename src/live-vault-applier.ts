@@ -24,6 +24,7 @@ type VaultFile = unknown;
 type LiveVaultApplyOptions = {
   configDir: string;
   conflictFolder: string;
+  shouldApplyPath?(path: string): boolean;
   yieldToUi?(): Promise<void>;
 };
 
@@ -112,13 +113,13 @@ function buffersEqual(left: ArrayBuffer, right: ArrayBuffer): boolean {
 
 async function readExisting(vault: LiveVaultTarget, path: string, asBinary: boolean): Promise<string | ArrayBuffer> {
   const file = vault.getAbstractFileByPath(path);
-  if (!file) {
+  if (file) {
+    return asBinary ? vault.readBinary(file) : vault.read(file);
+  }
+  if (!(await vault.adapter.exists(path))) {
     throw new Error(`Missing vault file: ${path}`);
   }
-  if (asBinary) {
-    return vault.readBinary(file);
-  }
-  return vault.read(file);
+  return asBinary ? vault.adapter.readBinary(path) : vault.adapter.read(path);
 }
 
 async function writeContent(vault: LiveVaultTarget, path: string, content: string | ArrayBuffer): Promise<void> {
@@ -126,6 +127,8 @@ async function writeContent(vault: LiveVaultTarget, path: string, content: strin
   if (isArrayBuffer(content)) {
     if (existing) {
       await vault.modifyBinary(existing, content);
+    } else if (await vault.adapter.exists(path)) {
+      await vault.adapter.writeBinary(path, content);
     } else {
       await vault.createBinary(path, content);
     }
@@ -133,6 +136,8 @@ async function writeContent(vault: LiveVaultTarget, path: string, content: strin
   }
   if (existing) {
     await vault.modify(existing, content);
+  } else if (await vault.adapter.exists(path)) {
+    await vault.adapter.write(path, content);
   } else {
     await vault.create(path, content);
   }
@@ -182,6 +187,10 @@ async function applyDeletedPreview(
     await backupExistingContent(vault, targetPath, result.conflictFolder, preview.contentType === "binary");
     await vault.delete(existing);
     result.backedUp++;
+  } else if (await vault.adapter.exists(targetPath)) {
+    await backupExistingContent(vault, targetPath, result.conflictFolder, preview.contentType === "binary");
+    await vault.adapter.remove(targetPath);
+    result.backedUp++;
   }
   result.deleted++;
   result.appliedIds.push(preview.id);
@@ -200,7 +209,8 @@ async function applyReadyPreview(
     return;
   }
 
-  if (vault.getAbstractFileByPath(targetPath)) {
+  const targetExists = !!vault.getAbstractFileByPath(targetPath) || await vault.adapter.exists(targetPath);
+  if (targetExists) {
     const current = await readExisting(vault, targetPath, preview.contentType === "binary");
     if (contentsEqual(current, preview.content)) {
       result.applied++;
@@ -230,7 +240,7 @@ async function applyReadyPreview(
 async function applyPreview(
   vault: LiveVaultTarget,
   preview: ReconstructedDocumentPreview,
-  options: Pick<LiveVaultApplyOptions, "configDir">,
+  options: Pick<LiveVaultApplyOptions, "configDir" | "shouldApplyPath">,
   result: MutableLiveVaultApplyResult
 ): Promise<void> {
   if (preview.status !== "ready" && preview.status !== "deleted") {
@@ -246,6 +256,12 @@ async function applyPreview(
   }
 
   const targetPath = safeVaultPath(preview.path);
+  if (options.shouldApplyPath && !options.shouldApplyPath(targetPath)) {
+    result.skipped++;
+    result.skippedIds.push(preview.id);
+    recordReason(result.skippedReasons, targetPath, "Excluded from sync.");
+    return;
+  }
   if (isProtectedTarget(targetPath, options.configDir)) {
     result.skipped++;
     result.skippedIds.push(preview.id);

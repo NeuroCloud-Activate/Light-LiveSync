@@ -25,6 +25,11 @@ assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/data.json.tmp
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/preview/file.md", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/staging/file.md", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/conflicts/file.md", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/Light-LiveSync/Light-LiveSync-main/README.md", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/Light-LiveSync/Light-LiveSync-main/.github/workflows/release.yml", options), false);
+assert.equal(shouldSyncVaultPath("node_modules/example/index.js", options), false);
+assert.equal(shouldSyncVaultPath(".git/config", options), false);
+assert.equal(shouldSyncVaultPath(".repowise/index.json", options), false);
 assert.equal(shouldSyncVaultPath(".trash/deleted.md", options), false);
 assert.equal(shouldSyncVaultPath(".DS_Store", options), false);
 
@@ -32,6 +37,8 @@ assert.equal(shouldScanVaultFolder("", options), true);
 assert.equal(shouldScanVaultFolder(".obsidian", options), true);
 assert.equal(shouldScanVaultFolder(".obsidian/plugins/other-plugin", options), true);
 assert.equal(shouldScanVaultFolder(".obsidian/plugins/light-livesync/preview", options), false);
+assert.equal(shouldScanVaultFolder(".obsidian/plugins/Light-LiveSync/Light-LiveSync-main", options), false);
+assert.equal(shouldScanVaultFolder(".obsidian/plugins/Light-LiveSync/Light-LiveSync-main/.github", options), false);
 assert.equal(shouldScanVaultFolder(".trash", options), false);
 
 assert.equal(isTextSyncPath("Daily.md"), true);

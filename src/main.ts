@@ -1334,6 +1334,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     const result = await this.withSuppressedVaultEvents(() => applyReadyPreviewsToLiveVault(this.app.vault, summary.previews, {
       configDir: this.app.vault.configDir,
       conflictFolder: this.conflictFolder(),
+      shouldApplyPath: (path) => this.shouldSyncPath(path),
       yieldToUi: () => this.yieldToUi()
     }));
     await context.store.markApplied([...result.appliedIds, ...result.skippedIds]);

@@ -28,13 +28,29 @@ const JUNK_FILENAMES = new Set([
   "desktop.ini"
 ]);
 
+const LOCAL_ONLY_FOLDER_NAMES = new Set([
+  ".git",
+  ".github",
+  ".repowise",
+  "node_modules",
+  "light-livesync-main"
+]);
+
 function cleanPath(path: string): string {
   return path.trim().replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/");
 }
 
 function pathInside(path: string, folder: string): boolean {
   const cleanedFolder = cleanPath(folder);
-  return !!cleanedFolder && (path === cleanedFolder || path.startsWith(`${cleanedFolder}/`));
+  const lowerPath = cleanPath(path).toLowerCase();
+  const lowerFolder = cleanedFolder.toLowerCase();
+  return !!lowerFolder && (lowerPath === lowerFolder || lowerPath.startsWith(`${lowerFolder}/`));
+}
+
+function hasLocalOnlyFolderSegment(path: string): boolean {
+  return cleanPath(path)
+    .split("/")
+    .some((part) => LOCAL_ONLY_FOLDER_NAMES.has(part.toLowerCase()));
 }
 
 function extensionOf(path: string): string {
@@ -65,6 +81,9 @@ export function shouldScanVaultFolder(path: string, options: VaultSyncPathOption
     return true;
   }
   if (cleaned === ".trash" || cleaned.startsWith(".trash/")) {
+    return false;
+  }
+  if (hasLocalOnlyFolderSegment(cleaned)) {
     return false;
   }
   return !localOnlyFolders(options).some((folder) => pathInside(cleaned, folder));
