@@ -706,6 +706,78 @@ assert.equal(pullCheckpointOutcome.ok, true);
 assert.equal((await pullCheckpointStore.getSummary()).lastRemoteSeq, "server-checkpoint-after-window");
 assert.deepEqual(pullCheckpointStore.checkpoints, ["server-checkpoint-after-window"]);
 
+const lightweightPeriodicStore = new MemoryStore([]);
+let lightweightPeriodicInspectCalls = 0;
+let lightweightPeriodicPullSince = "";
+const lightweightPeriodicEngine = new LightweightSyncEngine({
+  getSettings: () => settings,
+  updateRemoteInspection: async () => {
+    throw new Error("Lightweight periodic pulls should not refresh remote inspection.");
+  },
+  updateLocalQueue: async () => {},
+  getLocalStore: () => lightweightPeriodicStore,
+  readLocalFileSnapshot: async () => {
+    throw new Error("Pull-only periodic sync should not read local files.");
+  },
+  buildLocalPushBundle: async () => {
+    throw new Error("Pull-only periodic sync should not build upload bundles.");
+  },
+  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
+  createRemoteClient: () => ({
+    ...fakeClient,
+    async inspect() {
+      lightweightPeriodicInspectCalls += 1;
+      throw new Error("Lightweight periodic pulls should use the cached setup instead of inspection.");
+    },
+    async getChangesSince(since) {
+      lightweightPeriodicPullSince = String(since);
+      return { lastSeq: "42", changes: [] };
+    }
+  }),
+  log: () => {}
+});
+const lightweightPeriodicOutcome = await lightweightPeriodicEngine.sync("periodic");
+assert.equal(lightweightPeriodicOutcome.ok, true);
+assert.equal(lightweightPeriodicInspectCalls, 0);
+assert.equal(lightweightPeriodicPullSince, "0");
+assert.equal((await lightweightPeriodicStore.getSummary()).lastRemoteSeq, "42");
+assert.equal(lightweightPeriodicOutcome.metrics.inspectMs, 0);
+assert.equal(lightweightPeriodicOutcome.metrics.pulledChanges, 0);
+
+const missingSaltStore = new MemoryStore([]);
+let missingSaltInspectCalls = 0;
+const missingSaltEngine = new LightweightSyncEngine({
+  getSettings: () => ({
+    ...settings,
+    remoteState: {
+      ...settings.remoteState,
+      syncParameterSalt: ""
+    }
+  }),
+  updateRemoteInspection: async () => {},
+  updateLocalQueue: async () => {},
+  getLocalStore: () => missingSaltStore,
+  readLocalFileSnapshot: async () => undefined,
+  buildLocalPushBundle: async () => {
+    throw new Error("Missing-salt inspection check should not build local bundles.");
+  },
+  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
+  createRemoteClient: () => ({
+    ...fakeClient,
+    async inspect() {
+      missingSaltInspectCalls += 1;
+      return fakeClient.inspect();
+    },
+    async getChangesSince() {
+      return { lastSeq: "0", changes: [] };
+    }
+  }),
+  log: () => {}
+});
+const missingSaltOutcome = await missingSaltEngine.sync("periodic");
+assert.equal(missingSaltOutcome.ok, true);
+assert.equal(missingSaltInspectCalls, 1);
+
 let offlineClientCalls = 0;
 const offlineStore = new MemoryStore([]);
 const offlineEngine = new LightweightSyncEngine({
@@ -787,6 +859,8 @@ console.log(JSON.stringify({
   progressPhases: [...new Set(progressEvents.map((event) => event.phase))],
   pullCacheBatchSizes: pullBatchStore.cacheBatchSizes,
   pullCacheYields: pullBatchYields,
+  lightweightPeriodicSkippedInspect: lightweightPeriodicInspectCalls === 0,
+  missingSaltStillInspects: missingSaltInspectCalls === 1,
   offlineAutomatic: offlineAutomatic.message,
   offlineManualTriedNetwork: offlineClientCalls === 1,
   additionalDeviceInitialise: additionalDeviceInitialise.message,

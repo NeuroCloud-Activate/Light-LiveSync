@@ -289,29 +289,27 @@ export class LightweightSyncEngine {
     }
 
     const client = this.createRemoteClient(settings);
-    const inspectStartedAt = Date.now();
-    this.host.reportProgress?.({ phase: "inspect-start", reason });
-    const inspection = await client.inspect();
-    metrics.inspectMs = elapsedMs(inspectStartedAt);
-    await this.host.updateRemoteInspection(inspection);
-    this.host.reportProgress?.({
-      phase: "inspect-complete",
-      databaseName: inspection.databaseName,
-      documentCount: inspection.documentCount
-    });
+    const localStore = this.host.getLocalStore(settings.couchDb.database);
+    const startingSummary = await localStore.getSummary();
+    let activeSummary = startingSummary;
+    const inspection = await this.inspectRemoteWhenNeeded(client, settings, reason, startingSummary, metrics);
 
-    if (!inspection.syncParametersPresent) {
-      return {
-        ok: true,
-        message: `Remote reachable (${inspection.documentCount} docs). Sync parameters are not initialised yet.`,
-        metrics
-      };
+    if (inspection) {
+      if (!inspection.syncParametersPresent) {
+        return {
+          ok: true,
+          message: `Remote reachable (${inspection.documentCount} docs). Sync parameters are not initialised yet.`,
+          metrics
+        };
+      }
+      await this.queueCurrentVaultForFirstAutomaticSync(reason, inspection, localStore);
+      activeSummary = await localStore.getSummary();
     }
 
-    const localStore = this.host.getLocalStore(settings.couchDb.database);
-    await this.queueCurrentVaultForFirstAutomaticSync(reason, inspection, localStore);
     const pushStartedAt = Date.now();
-    const pushed = await this.pushLocalChanges(client, localStore, settings);
+    const pushed = activeSummary.pendingPush > 0
+      ? await this.pushLocalChanges(client, localStore, settings)
+      : emptyPushOutcome();
     metrics.pushMs = elapsedMs(pushStartedAt);
     metrics.pushedFiles = pushed.pushed;
     metrics.deletedFiles = pushed.deleted;
@@ -327,7 +325,7 @@ export class LightweightSyncEngine {
     metrics.versionsPruned = pushed.versionsPruned;
     metrics.versionsFailed = pushed.versionsFailed;
 
-    if (await this.skipPullAfterFirstUpload(client, localStore, inspection, pushed)) {
+    if (inspection && await this.skipPullAfterFirstUpload(client, localStore, inspection, pushed)) {
       const summary = await localStore.getSummary();
       await this.host.updateLocalQueue(summary);
       const pulled = { pulledCount: 0, summary, lastSeq: inspection.updateSequence, reachedRemoteEnd: true };
@@ -336,7 +334,7 @@ export class LightweightSyncEngine {
     }
 
     const pullStartedAt = Date.now();
-    let pulled = await this.pullRemoteChanges(client, localStore, inspection.updateSequence);
+    let pulled = await this.pullRemoteChanges(client, localStore, inspection?.updateSequence ?? activeSummary.lastRemoteSeq);
     metrics.pullMs = elapsedMs(pullStartedAt);
     metrics.pulledChanges = pulled.pulledCount;
 
@@ -355,8 +353,42 @@ export class LightweightSyncEngine {
       await this.host.updateLocalQueue(pulled.summary);
     }
 
-    this.logSyncResult(reason, inspection.databaseName, pushed, pulled.pulledCount, applied);
+    this.logSyncResult(reason, inspection?.databaseName ?? settings.couchDb.database, pushed, pulled.pulledCount, applied);
     return this.syncOutcomeMessage(pushed, pulled, metrics, applied);
+  }
+
+  private async inspectRemoteWhenNeeded(
+    client: SyncRemoteClient,
+    settings: LightweightLiveSyncSettings,
+    reason: SyncReason,
+    startingSummary: LocalStoreSummary,
+    metrics: RuntimeSyncMetricsState
+  ): Promise<RemoteInspection | undefined> {
+    if (this.canUseLightweightPeriodicPull(settings, reason, startingSummary)) {
+      return undefined;
+    }
+
+    const inspectStartedAt = Date.now();
+    this.host.reportProgress?.({ phase: "inspect-start", reason });
+    const inspection = await client.inspect();
+    metrics.inspectMs = elapsedMs(inspectStartedAt);
+    await this.host.updateRemoteInspection(inspection);
+    this.host.reportProgress?.({
+      phase: "inspect-complete",
+      databaseName: inspection.databaseName,
+      documentCount: inspection.documentCount
+    });
+    return inspection;
+  }
+
+  private canUseLightweightPeriodicPull(
+    settings: LightweightLiveSyncSettings,
+    reason: SyncReason,
+    startingSummary: LocalStoreSummary
+  ): boolean {
+    return reason === "periodic" &&
+      startingSummary.pendingPush === 0 &&
+      !!settings.remoteState.syncParameterSalt;
   }
 
   private readySyncSettings(): ReadySyncSettings | NotReadySyncSettings {

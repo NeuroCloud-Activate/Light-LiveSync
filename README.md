@@ -155,6 +155,7 @@ The plugin is optimized around minimal work and minimal data movement.
 - Pulls large batches of CouchDB changes for faster catch-up, then caches them locally in bounded chunks so the UI can stay responsive.
 - Remote changes apply in batches with recovery backups.
 - Previous-file versions reuse existing encrypted CouchDB chunks instead of uploading a separate full copy for every version.
+- Idle periodic checks reuse the saved CouchDB setup and pull only from the last checkpoint, keeping frequent desktop and mobile polling low-overhead.
 - Failed uploads use capped backoff and do not block unrelated due changes.
 - Automatic sync pauses when the runtime reports offline.
 - Periodic sync acts as the fallback safety net.

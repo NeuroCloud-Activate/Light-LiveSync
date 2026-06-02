@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.32
+
+- Makes idle periodic polling lighter by reusing the saved, already-validated CouchDB setup and pulling from the local checkpoint directly when there are no local uploads waiting.
+- Keeps full remote inspection for manual sync, startup sync, setup import, vault-change sync, first-vault uploads, queued local uploads, and missing sync-parameter salt cases.
+- Adds sync-engine coverage proving lightweight periodic checks still advance CouchDB checkpoints and that incomplete setup still uses the full verification path.
+
 ## 0.1.31
 
 - Queues Obsidian vault-change events directly instead of dropping edits when a platform reports an older file timestamp.
