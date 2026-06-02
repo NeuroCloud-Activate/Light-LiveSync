@@ -116,6 +116,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       getSettings: () => this.getRuntimeSettings(),
       updateRemoteInspection: (inspection) => this.updateRemoteInspection(inspection),
       updateLocalQueue: (summary) => this.updateLocalQueue(summary),
+      queueCurrentVaultForSync: () => this.queueCurrentVaultForSync("Automatic first sync"),
       getLocalStore: (databaseName) => this.getLocalStore(databaseName),
       readLocalFileSnapshot: (path) => this.readLocalFileSnapshot(path),
       buildLocalPushBundle: (snapshot, options) => this.buildLocalPushBundle(snapshot, options),
@@ -691,7 +692,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!(await this.ensureCredentialsUnlocked())) {
       return;
     }
-    await this.queueCurrentVaultForManualSync();
+    await this.queueCurrentVaultForSync("Manual sync");
     this.scheduler.request("manual", true);
   }
 
@@ -1577,14 +1578,14 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     await this.updateLocalQueue(await store.queueLocalChange(path, deleted));
   }
 
-  private async queueCurrentVaultForManualSync(): Promise<void> {
+  private async queueCurrentVaultForSync(label: string): Promise<LocalStoreSummary | undefined> {
     if (!this.settings.configured || !this.settings.couchDb.database) {
-      return;
+      return undefined;
     }
 
     const paths = await this.listCurrentVaultPathsForSync();
     if (paths.length === 0) {
-      return;
+      return undefined;
     }
 
     this.setStatus("Scanning vault");
@@ -1595,8 +1596,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     const store = this.getLocalStore(this.settings.couchDb.database);
     const summary = await store.queueLocalChanges(changes);
     await this.updateLocalQueue(summary);
-    this.log(`Manual sync queued ${changes.length} vault file${changes.length === 1 ? "" : "s"} for fingerprint-checked upload.`);
+    this.log(`${label} queued ${changes.length} vault file${changes.length === 1 ? "" : "s"} for fingerprint-checked upload.`);
     await this.yieldToUi();
+    return summary;
   }
 
   private async listCurrentVaultPathsForSync(): Promise<string[]> {

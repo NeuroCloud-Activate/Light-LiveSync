@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.11
+
+- Adds punctuation to the plugin manifest description.
+- Makes first full-vault sync automatic for setup/startup/periodic sync when the remote has no current vault documents.
+- Adds harness coverage proving setup-import can queue and push the current vault without manual Sync now.
+
 ## 0.1.10
 
 - Expands manual sync to recursively include vault config, hidden files, and other plugin data through the vault adapter.

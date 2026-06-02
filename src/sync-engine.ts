@@ -69,6 +69,12 @@ type PulledRemoteChanges = {
 };
 
 const REMOTE_CACHE_BATCH_SIZE = 25;
+const AUTOMATIC_FULL_VAULT_SCAN_REASONS = new Set<SyncReason>([
+  "startup",
+  "periodic",
+  "setup-import",
+  "setup-qr-import"
+]);
 
 function failedPushRetryDelayMs(settings: LightweightLiveSyncSettings, attemptsAfterFailure: number): number {
   const baseMs = Math.max(5, settings.failedPushRetryBaseSec) * 1000;
@@ -105,6 +111,7 @@ export type SyncEngineHost = {
   getSettings(): LightweightLiveSyncSettings;
   updateRemoteInspection(inspection: RemoteInspection): Promise<void>;
   updateLocalQueue(summary: LocalStoreSummary): Promise<void>;
+  queueCurrentVaultForSync?(): Promise<LocalStoreSummary | undefined>;
   getLocalStore(databaseName: string): LocalDocumentStore;
   readLocalFileSnapshot(path: string): Promise<LocalFileSnapshot | undefined>;
   buildLocalPushBundle(snapshot: LocalFileSnapshot, options: LiveSyncBuildOptions): Promise<LiveSyncPushBundle>;
@@ -182,6 +189,7 @@ export class LightweightSyncEngine {
     }
 
     const localStore = this.host.getLocalStore(settings.couchDb.database);
+    await this.queueCurrentVaultForFirstAutomaticSync(reason, inspection, localStore);
     const pushStartedAt = Date.now();
     const pushed = await this.pushLocalChanges(client, localStore, settings);
     metrics.pushMs = elapsedMs(pushStartedAt);
@@ -274,6 +282,38 @@ export class LightweightSyncEngine {
       : undefined;
   }
 
+  private async queueCurrentVaultForFirstAutomaticSync(
+    reason: SyncReason,
+    inspection: RemoteInspection,
+    localStore: LocalDocumentStore
+  ): Promise<void> {
+    if (!AUTOMATIC_FULL_VAULT_SCAN_REASONS.has(reason) || !this.host.queueCurrentVaultForSync) {
+      return;
+    }
+
+    if (!this.remoteHasNoCurrentVaultDocuments(inspection)) {
+      return;
+    }
+
+    const summary = await localStore.getSummary();
+    if (summary.pendingPush > 0) {
+      return;
+    }
+
+    const nextSummary = await this.host.queueCurrentVaultForSync();
+    if (nextSummary && nextSummary.pendingPush > 0) {
+      this.host.log(`Automatic first sync queued ${nextSummary.pendingPush} vault file${nextSummary.pendingPush === 1 ? "" : "s"} after finding an empty remote vault.`);
+    }
+  }
+
+  private remoteHasNoCurrentVaultDocuments(inspection: RemoteInspection): boolean {
+    return (
+      inspection.sample.notes === 0 &&
+      inspection.sample.chunks === 0 &&
+      inspection.sample.unknown === 0
+    );
+  }
+
   private logSyncResult(
     reason: SyncReason,
     databaseName: string,
@@ -345,10 +385,7 @@ export class LightweightSyncEngine {
     pushed: PushBatchOutcome
   ): Promise<boolean> {
     const wroteLocalChanges = pushed.pushed + pushed.deleted > 0;
-    const remoteHadNoVaultDocuments =
-      inspection.sample.notes === 0 &&
-      inspection.sample.chunks === 0 &&
-      inspection.sample.unknown === 0;
+    const remoteHadNoVaultDocuments = this.remoteHasNoCurrentVaultDocuments(inspection);
 
     if (!wroteLocalChanges || !remoteHadNoVaultDocuments) {
       return false;

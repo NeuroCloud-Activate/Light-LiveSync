@@ -49,6 +49,22 @@ class MemoryStore {
     }
   }
 
+  async queueLocalChanges(changes) {
+    const now = Date.now();
+    for (const [index, change] of changes.entries()) {
+      this.pendingPushes.push({
+        path: change.path,
+        deleted: change.deleted,
+        queuedAt: now + index,
+        updatedAt: now + index,
+        attempts: 0,
+        nextAttemptAt: 0,
+        lastError: ""
+      });
+    }
+    return this.getSummary();
+  }
+
   async getCheckpoint() {
     return { lastRemoteSeq: this.lastRemoteSeq, updatedAt: 0 };
   }
@@ -249,6 +265,70 @@ assert.equal(firstUploadStore.lastRemoteSeq, "3");
 assert.equal((await firstUploadStore.getSummary()).pendingApply, 0);
 assert.equal(firstUploadOutcome.metrics.pushedFiles, 1);
 assert.equal(firstUploadOutcome.metrics.pulledChanges, 0);
+
+const automaticFirstStore = new MemoryStore([]);
+let automaticFirstQueued = false;
+let automaticFirstPulled = false;
+let automaticFirstInspectCount = 0;
+const automaticFirstClient = {
+  ...fakeClient,
+  async inspect() {
+    automaticFirstInspectCount += 1;
+    return {
+      serverVersion: "test",
+      databaseName: "syncengine",
+      documentCount: automaticFirstInspectCount === 1 ? 1 : 3,
+      updateSequence: automaticFirstInspectCount === 1 ? "1" : "3",
+      syncParametersPresent: true,
+      syncParameterSalt: settings.remoteState.syncParameterSalt,
+      milestonePresent: false,
+      sample: automaticFirstInspectCount === 1
+        ? { total: 0, notes: 0, chunks: 0, system: 0, deleted: 0, unknown: 0 }
+        : { total: 2, notes: 1, chunks: 1, system: 0, deleted: 0, unknown: 0 }
+    };
+  },
+  async getChangesSince() {
+    automaticFirstPulled = true;
+    return { lastSeq: "3", changes: [] };
+  },
+  async putLiveSyncBundle() {
+    return { fileId: "notes/auto.md", written: 2, reused: 0, conflicts: 0 };
+  }
+};
+const automaticFirstEngine = new LightweightSyncEngine({
+  getSettings: () => ({ ...settings, maxPushChangesPerSync: 10 }),
+  updateRemoteInspection: async () => {},
+  updateLocalQueue: async () => {},
+  queueCurrentVaultForSync: async () => {
+    automaticFirstQueued = true;
+    return automaticFirstStore.queueLocalChanges([{ path: "notes/auto.md", deleted: false }]);
+  },
+  getLocalStore: () => automaticFirstStore,
+  readLocalFileSnapshot: async (path) => ({
+    path,
+    content: `content for ${path}`,
+    ctime: 1,
+    mtime: 2,
+    size: 10
+  }),
+  buildLocalPushBundle: async (snapshot) => ({
+    fileDocument: { _id: snapshot.path, type: "plain", path: snapshot.path, children: [], ctime: 1, mtime: 2, size: 0 },
+    chunkDocuments: [{ _id: `h:${snapshot.path}`, type: "newnote", data: "chunk" }]
+  }),
+  applyPulledChanges: async () => {
+    throw new Error("Should not apply own automatic first-upload changes.");
+  },
+  createRemoteClient: () => automaticFirstClient,
+  log: () => {}
+});
+const automaticFirstOutcome = await automaticFirstEngine.sync("setup-import");
+assert.equal(automaticFirstQueued, true);
+assert.equal(automaticFirstOutcome.ok, true);
+assert.equal(automaticFirstPulled, false);
+assert.equal(automaticFirstStore.lastRemoteSeq, "3");
+assert.equal((await automaticFirstStore.getSummary()).pendingApply, 0);
+assert.equal(automaticFirstOutcome.metrics.pushedFiles, 1);
+assert.equal(automaticFirstOutcome.metrics.pulledChanges, 0);
 
 const retryStore = new MemoryStore([
   { path: "notes/cooling.md", deleted: false, queuedAt: 1, updatedAt: 1, attempts: 1, nextAttemptAt: Date.now() + 600_000, lastError: "offline" },
@@ -492,6 +572,8 @@ console.log(JSON.stringify({
   retryBackoffSeconds: Math.ceil((failedRetry.nextAttemptAt - retryStartedAt) / 1000),
   retryDidNotBlockDuePush: retryPutCalls[0].fileDocument._id,
   noOpSkippedWithoutNetworkWrite: noOpOutcome.metrics.skippedFiles,
+  automaticFirstSyncQueued: automaticFirstQueued,
+  automaticFirstSyncPulledOwnUpload: automaticFirstPulled,
   pullCacheBatchSizes: pullBatchStore.cacheBatchSizes,
   pullCacheYields: pullBatchYields,
   offlineAutomatic: offlineAutomatic.message,

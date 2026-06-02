@@ -11,6 +11,7 @@ It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmr
 - Requires end-to-end encryption by default.
 - Batches edits for 60 seconds by default so rapid typing does not spam the server.
 - Scans the current vault when you press **Sync now**, so first-time uploads do not depend on fresh edit events.
+- Automatically scans and queues the current vault on first setup/startup sync when the remote vault is empty.
 - Includes vault configuration, hidden files, and other plugin data in manual full-vault sync.
 - Restores saved credentials automatically on app start so mobile sync can resume without a repeated credential prompt.
 - Syncs vault configuration and plugin data along with notes.

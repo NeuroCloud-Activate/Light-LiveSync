@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 const expectedId = "light-livesync";
 const expectedName = "Light-LiveSync";
-const expectedVersion = "0.1.10";
+const expectedVersion = "0.1.11";
 const expectedMinAppVersion = "1.5.0";
 const expectedFiles = ["main.js", "manifest.json", "styles.css", "sync-worker.js"];
 const expectedZipEntries = expectedFiles.map((file) => `light-livesync/${file}`).sort();

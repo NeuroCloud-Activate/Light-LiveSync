@@ -1,9 +1,9 @@
 {
   "id": "light-livesync",
   "name": "Light-LiveSync",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "minAppVersion": "1.5.0",
-  "description": "A lightweight self-hosted live synchronization tool, to keep all your data synced, encrypted, and under your control",
+  "description": "A lightweight self-hosted live synchronization tool, to keep all your data synced, encrypted, and under your control.",
   "author": "NeuroCloud",
   "authorUrl": "https://github.com/NeuroCloud-Activate",
   "isDesktopOnly": false
