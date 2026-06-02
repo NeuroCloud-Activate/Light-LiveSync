@@ -10,6 +10,7 @@ export class GeneratedSetupUriModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
+    this.modalEl.addClass("light-livesync-modal-shell");
     contentEl.empty();
     contentEl.addClass("light-livesync-modal");
     contentEl.createEl("h2", { text: "Add another device" });
@@ -25,6 +26,10 @@ export class GeneratedSetupUriModal extends Modal {
       .setDesc("Treat this like a temporary invite code. It is encrypted, but anyone with the URI and passphrase can connect to the same sync database.")
       .addTextArea((text) => {
         text.inputEl.rows = 8;
+        text.inputEl.setAttribute("readonly", "true");
+        text.inputEl.setAttribute("autocapitalize", "off");
+        text.inputEl.setAttribute("autocomplete", "off");
+        text.inputEl.setAttribute("spellcheck", "false");
         text.setValue(this.setupUri);
       });
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.37
+
+- Makes setup, credential, and add-device modals scrollable and keyboard-safe on iPhone and iPadOS windowed layouts.
+- Adds mobile-friendly sizing for setup URI text areas so paste fields remain reachable when the on-screen keyboard is open.
+- Keeps setup URI, CouchDB credential, and passphrase fields from autocapitalizing, spellchecking, or browser/autofill rewriting pasted secrets.
+
 ## 0.1.36
 
 - Pulls the existing remote vault before doing a full local scan on a freshly added additional device, preventing blank local plugin settings from uploading first.

@@ -37,6 +37,7 @@ export class DirectCouchDbSetupModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
+    this.modalEl.addClass("light-livesync-modal-shell");
     contentEl.empty();
     contentEl.addClass("light-livesync-modal");
     contentEl.addClass("light-livesync-command-modal");
@@ -78,6 +79,9 @@ export class DirectCouchDbSetupModal extends Modal {
         if (password) {
           text.inputEl.type = "password";
         }
+        text.inputEl.setAttribute("autocapitalize", "off");
+        text.inputEl.setAttribute("autocomplete", password ? "new-password" : "off");
+        text.inputEl.setAttribute("spellcheck", "false");
         this.inputElements[field] = text.inputEl;
         text.setPlaceholder(placeholder);
         text.setValue(this.input[field]);

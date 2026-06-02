@@ -7,6 +7,7 @@
   max-width: 760px;
   user-select: text;
   -webkit-user-select: text;
+  width: 100%;
 }
 
 .light-livesync-settings .setting-item {
@@ -29,6 +30,7 @@
 
 .light-livesync-settings .setting-item-control {
   min-width: min(280px, 100%);
+  flex-wrap: wrap;
 }
 
 .light-livesync-settings .setting-item-control textarea,
@@ -63,8 +65,22 @@
 }
 
 .light-livesync-modal {
+  box-sizing: border-box;
   max-width: min(680px, 100%);
+  max-height: calc(100dvh - 72px);
   margin: 0 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 24px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.modal.light-livesync-modal-shell {
+  width: min(680px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
 }
 
 .light-livesync-modal .setting-item {
@@ -84,6 +100,7 @@
 .light-livesync-modal .setting-item-control {
   justify-content: flex-start;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .light-livesync-modal textarea,
@@ -94,6 +111,12 @@
 
 .light-livesync-modal textarea {
   min-height: 120px;
+  resize: vertical;
+}
+
+.light-livesync-setup-uri-modal textarea {
+  min-height: 96px;
+  max-height: 34dvh;
 }
 
 .light-livesync-activity-console {
@@ -150,4 +173,61 @@
   max-width: 640px;
   margin: 8px 0;
   color: var(--text-muted);
+}
+
+@media (max-width: 700px), (max-height: 700px) {
+  .light-livesync-settings {
+    max-width: none;
+    padding-inline: 0;
+  }
+
+  .light-livesync-settings .setting-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .light-livesync-settings .setting-item-info,
+  .light-livesync-settings .setting-item-control,
+  .light-livesync-settings .setting-item-control textarea,
+  .light-livesync-settings .setting-item-control input[type="text"],
+  .light-livesync-settings .setting-item-control input[type="password"],
+  .light-livesync-settings .setting-item-control input[type="number"] {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .light-livesync-tabs {
+    gap: 4px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: thin;
+  }
+
+  .light-livesync-tab {
+    flex: 0 0 auto;
+    padding-inline: 8px;
+  }
+
+  .modal.light-livesync-modal-shell {
+    width: calc(100vw - 12px);
+    max-width: calc(100vw - 12px);
+    max-height: calc(100dvh - 12px);
+  }
+
+  .light-livesync-modal {
+    max-height: calc(100dvh - 36px);
+    padding-inline: 4px;
+    padding-bottom: max(220px, calc(env(safe-area-inset-bottom) + 40px));
+    scroll-padding-bottom: 48dvh;
+  }
+
+  .light-livesync-modal .setting-item {
+    padding: 10px 0;
+  }
+
+  .light-livesync-modal textarea {
+    min-height: 88px;
+    max-height: 30dvh;
+  }
 }
