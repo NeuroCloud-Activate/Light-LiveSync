@@ -1,5 +1,6 @@
 import { fallbackMixedHashEach, mixedHash, sha1 } from "octagonal-wheels/hash/purejs";
 import { encrypt as encryptHKDF } from "octagonal-wheels/encryption/hkdf";
+import { base64ToBytes, bytesToBase64 } from "./base64";
 import { ENTRY_TYPES, type LiveSyncDocument } from "./livesync-constants";
 
 const ID_PREFIX_OBFUSCATED = "f:";
@@ -52,24 +53,6 @@ function textToBytes(value: string): Uint8Array<ArrayBuffer> {
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length) as Uint8Array<ArrayBuffer>;
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const batchSize = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += batchSize) {
-    binary += String.fromCharCode(...bytes.slice(offset, offset + batchSize));
-  }
-  return btoa(binary);
 }
 
 async function sha256Hex(value: string): Promise<string> {

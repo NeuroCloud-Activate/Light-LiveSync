@@ -1,5 +1,6 @@
 import { decrypt } from "octagonal-wheels/encryption/encryption";
 import { decrypt as decryptHKDF } from "octagonal-wheels/encryption/hkdf";
+import { base64ToBytes, Base64DecodeError } from "./base64";
 import {
   ENTRY_TYPES,
   isLiveSyncChunkDocument,
@@ -38,17 +39,19 @@ type EncryptedMetadata = {
 
 type EdenChunkRecord = Record<string, { data: string; epoch?: number }>;
 
-function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length) as Uint8Array<ArrayBuffer>;
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-}
-
 function hasTransformKey(options: DocumentTransformOptions): boolean {
   return !!options.passphrase && !!options.syncParameterSalt;
+}
+
+function syncParameterSaltBytes(options: DocumentTransformOptions): Uint8Array<ArrayBuffer> {
+  try {
+    return base64ToBytes(options.syncParameterSalt);
+  } catch (error) {
+    if (error instanceof Base64DecodeError) {
+      throw new DocumentTransformError("Remote sync parameter salt is not valid base64.", { cause: error });
+    }
+    throw error;
+  }
 }
 
 async function tryLegacyDecrypt(input: string, passphrase: string, useDynamicIterationCount: boolean): Promise<string> {
@@ -72,7 +75,7 @@ async function decryptMaybeEncryptedData(input: string, options: DocumentTransfo
     if (!options.syncParameterSalt) {
       throw new DocumentTransformError("Remote sync parameter salt is required for HKDF decryption.");
     }
-    return decryptHKDF(input, options.passphrase, base64ToBytes(options.syncParameterSalt));
+    return decryptHKDF(input, options.passphrase, syncParameterSaltBytes(options));
   }
 
   if (input.startsWith(LEGACY_ENCRYPTED_PREFIX)) {
@@ -114,7 +117,7 @@ export async function decryptFileMetadata(
 
   const encrypted = doc.path.slice(ENCRYPTED_META_PREFIX.length);
   const metadata = JSON.parse(
-    await decryptHKDF(encrypted, options.passphrase, base64ToBytes(options.syncParameterSalt))
+    await decryptHKDF(encrypted, options.passphrase, syncParameterSaltBytes(options))
   ) as EncryptedMetadata;
 
   if (!metadata.path) {
@@ -153,7 +156,7 @@ async function decryptEden(doc: LiveSyncFileDocument, options: DocumentTransform
     return {
       ...doc,
       eden: JSON.parse(
-        await decryptHKDF(hkdfPayload, options.passphrase, base64ToBytes(options.syncParameterSalt))
+        await decryptHKDF(hkdfPayload, options.passphrase, syncParameterSaltBytes(options))
       ) as EdenChunkRecord
     };
   }

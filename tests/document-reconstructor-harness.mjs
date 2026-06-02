@@ -127,6 +127,48 @@ assert.equal(binaryPreview.status, "ready");
 assert.equal(binaryPreview.contentType, "binary");
 assert.deepEqual([...new Uint8Array(binaryPreview.content)], [1, 2, 3, 4]);
 
+const urlSafeBinaryPreview = await new DocumentReconstructor(
+  new MemoryStore({
+    "h:urlsafe": chunk("h:urlsafe", "-_8")
+  }),
+  options
+).preview(
+  cached({
+    _id: "assets/url-safe.bin",
+    path: "assets/url-safe.bin",
+    type: "newnote",
+    children: ["h:urlsafe"],
+    ctime: 1,
+    mtime: 2,
+    size: 2,
+    eden: {}
+  })
+);
+
+assert.equal(urlSafeBinaryPreview.status, "ready");
+assert.deepEqual([...new Uint8Array(urlSafeBinaryPreview.content)], [251, 255]);
+
+const corruptBinaryPreview = await new DocumentReconstructor(
+  new MemoryStore({
+    "h:bad-bin": chunk("h:bad-bin", "not valid base64?")
+  }),
+  options
+).preview(
+  cached({
+    _id: "assets/bad.bin",
+    path: "assets/bad.bin",
+    type: "newnote",
+    children: ["h:bad-bin"],
+    ctime: 1,
+    mtime: 2,
+    size: 99,
+    eden: {}
+  })
+);
+
+assert.equal(corruptBinaryPreview.status, "unsupported");
+assert.match(corruptBinaryPreview.reason, /base64/);
+
 let missingChunkRepairCalls = 0;
 const repairedPreview = await new DocumentReconstructor(
   new MemoryStore(),
@@ -208,6 +250,8 @@ console.log(JSON.stringify({
   ok: true,
   eden: true,
   binary: true,
+  urlSafeBinary: true,
+  corruptBinary: corruptBinaryPreview.status,
   missingChunkRepairCalls,
   stillMissing: stillMissingPreview.status,
   reconstructionYields

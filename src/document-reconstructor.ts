@@ -6,6 +6,7 @@ import {
   type LiveSyncFileDocument
 } from "./livesync-constants";
 import type { CachedRemoteDocument, LocalDocumentStore } from "./local-document-store";
+import { base64ToArrayBuffer, Base64DecodeError } from "./base64";
 import {
   decryptChunkDocument,
   decryptFileDocument,
@@ -76,15 +77,6 @@ type ReconstructionRuntimeOptions = {
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
-}
-
-function base64ToArrayBuffer(value: string): ArrayBuffer {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes.buffer;
 }
 
 function contentKind(doc: LiveSyncFileDocument | undefined): "text" | "binary" {
@@ -206,7 +198,7 @@ export class DocumentReconstructor {
     const previews = [];
     for (const cached of pending) {
       await this.runtime?.yieldToUi?.();
-      previews.push(await this.preview(cached));
+      previews.push(await this.preview(cached).catch((error) => this.unsupported(cached, friendlyPreviewError(error))));
       await this.runtime?.yieldToUi?.();
     }
     return this.summarise(previews);
@@ -218,7 +210,11 @@ export class DocumentReconstructor {
   ): Promise<ReconstructedDocumentPreview> {
     const loaded = await this.loadChunks(doc);
     if (loaded.status === "ready") {
-      return readyPreview(cached, doc, contentFromChunks(doc, loaded.chunks), loaded.chunks.length);
+      try {
+        return readyPreview(cached, doc, contentFromChunks(doc, loaded.chunks), loaded.chunks.length);
+      } catch (error) {
+        return this.unsupported(cached, friendlyPreviewError(error));
+      }
     }
     if (loaded.status === "missing-chunks") {
       return {
@@ -343,4 +339,11 @@ export class DocumentReconstructor {
       previews
     };
   }
+}
+
+function friendlyPreviewError(error: unknown): string {
+  if (error instanceof Base64DecodeError) {
+    return "Remote binary content is not valid base64.";
+  }
+  return error instanceof Error ? error.message : "Remote file could not be reconstructed.";
 }

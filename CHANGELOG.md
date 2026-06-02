@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.26
+
+- Prevents malformed remote binary content from stopping startup sync by treating invalid base64 as a per-file unsupported apply item.
+- Accepts standard base64, URL-safe base64, and missing-padding base64 when reconstructing synced binary files.
+- Reports corrupt remote binary content in Activity skipped/failed details instead of surfacing a raw browser `atob` error.
+
 ## 0.1.25
 
 - Groups prepared local file uploads into larger CouchDB bulk writes to reduce mobile request overhead while keeping per-file retry isolation if a grouped upload fails.

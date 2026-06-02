@@ -1,4 +1,5 @@
 import type { DataAdapter } from "obsidian";
+import { base64ToArrayBuffer } from "./base64";
 import {
   ENTRY_TYPES,
   isLiveSyncChunkDocument,
@@ -116,15 +117,6 @@ function legacyContent(doc: LiveSyncFileDocument): string {
     return doc.data.join("");
   }
   return typeof doc.data === "string" ? doc.data : "";
-}
-
-function base64ToArrayBuffer(value: string): ArrayBuffer {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes.buffer;
 }
 
 function contentFromChunks(doc: LiveSyncFileDocument, chunks: LiveSyncChunkDocument[]): string | ArrayBuffer {
