@@ -57,8 +57,11 @@ export type LightweightLiveSyncSettings = {
   minimumSyncIntervalMs: number;
   maxStorageApplyConcurrency: number;
   maxChunkFetchConcurrency: number;
+  versioningEnabled: boolean;
+  maxVersionsPerFile: number;
+  maxVersionAgeDays: number;
   showAdvancedSettings: boolean;
-  settingsTab: "sync" | "activity" | "advanced";
+  settingsTab: "sync" | "activity" | "recovery" | "advanced";
   previewExportFolder: string;
   stagingApplyFolder: string;
   conflictFolder: string;
@@ -166,6 +169,10 @@ export type RuntimeSyncMetricsState = {
   remoteDocsConflicts: number;
   localBytesRead: number;
   chunkDocsBuilt: number;
+  versionsSaved: number;
+  versionsSkipped: number;
+  versionsPruned: number;
+  versionsFailed: number;
 };
 
 export const DEFAULT_RUNTIME_SYNC_METRICS: RuntimeSyncMetricsState = {
@@ -186,7 +193,11 @@ export const DEFAULT_RUNTIME_SYNC_METRICS: RuntimeSyncMetricsState = {
   remoteDocsReused: 0,
   remoteDocsConflicts: 0,
   localBytesRead: 0,
-  chunkDocsBuilt: 0
+  chunkDocsBuilt: 0,
+  versionsSaved: 0,
+  versionsSkipped: 0,
+  versionsPruned: 0,
+  versionsFailed: 0
 };
 
 export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
@@ -226,6 +237,9 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
   minimumSyncIntervalMs: 30000,
   maxStorageApplyConcurrency: 25,
   maxChunkFetchConcurrency: 8,
+  versioningEnabled: true,
+  maxVersionsPerFile: 10,
+  maxVersionAgeDays: 90,
   showAdvancedSettings: false,
   settingsTab: "sync",
   previewExportFolder: "",

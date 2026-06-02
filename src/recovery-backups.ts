@@ -29,7 +29,7 @@ function folderOf(path: string): string {
   return path.split("/").slice(0, -1).join("/");
 }
 
-async function ensureFolder(adapter: DataAdapter, folderPath: string): Promise<void> {
+export async function ensureRecoveryFolder(adapter: DataAdapter, folderPath: string): Promise<void> {
   const parts = normalizeVaultPath(folderPath).split("/").filter(Boolean);
   let current = "";
   for (const part of parts) {
@@ -114,6 +114,23 @@ function nextRecoveryBackupPath(conflictFolder: string, originalPath: string): s
   return normalizeVaultPath(`${conflictFolder}/${folder ? `${folder}/` : ""}${name}.local-conflict-${timestamp}`);
 }
 
+export async function createRecoveryBackupForPath(
+  adapter: DataAdapter,
+  originalPath: string,
+  conflictFolder: string
+): Promise<string> {
+  const normalizedOriginal = normalizeVaultPath(originalPath);
+  const preRestoreBackupPath = nextRecoveryBackupPath(conflictFolder, normalizedOriginal);
+  const restoreAsText = isTextSyncPath(normalizedOriginal);
+  await ensureRecoveryFolder(adapter, folderOf(preRestoreBackupPath));
+  if (restoreAsText) {
+    await adapter.write(preRestoreBackupPath, await adapter.read(normalizedOriginal));
+  } else {
+    await adapter.writeBinary(preRestoreBackupPath, await adapter.readBinary(normalizedOriginal));
+  }
+  return preRestoreBackupPath;
+}
+
 export async function restoreRecoveryBackup(
   adapter: DataAdapter,
   entry: Pick<RecoveryBackupEntry, "backupPath" | "originalPath">,
@@ -121,21 +138,16 @@ export async function restoreRecoveryBackup(
 ): Promise<RecoveryRestoreResult> {
   const originalPath = normalizeVaultPath(entry.originalPath);
   const backupPath = normalizeVaultPath(entry.backupPath);
-  const preRestoreBackupPath = nextRecoveryBackupPath(conflictFolder, originalPath);
+  let preRestoreBackupPath = nextRecoveryBackupPath(conflictFolder, originalPath);
   const restoreAsText = isTextSyncPath(originalPath);
   let createdPreRestoreBackup = false;
 
   if (await adapter.exists(originalPath)) {
-    await ensureFolder(adapter, folderOf(preRestoreBackupPath));
-    if (restoreAsText) {
-      await adapter.write(preRestoreBackupPath, await adapter.read(originalPath));
-    } else {
-      await adapter.writeBinary(preRestoreBackupPath, await adapter.readBinary(originalPath));
-    }
+    preRestoreBackupPath = await createRecoveryBackupForPath(adapter, originalPath, conflictFolder);
     createdPreRestoreBackup = true;
   }
 
-  await ensureFolder(adapter, folderOf(originalPath));
+  await ensureRecoveryFolder(adapter, folderOf(originalPath));
   if (restoreAsText) {
     await adapter.write(originalPath, await adapter.read(backupPath));
   } else {

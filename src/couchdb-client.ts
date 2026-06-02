@@ -1,6 +1,7 @@
 import { requestUrl, type RequestUrlParam } from "obsidian";
 import { DOCID_SYNC_PARAMETERS, ENTRY_TYPES, MILESTONE_DOCID, type LiveSyncDocument } from "./livesync-constants";
 import type { CouchDbSettings } from "./settings";
+import { versionDocumentRangeForFile } from "./version-history";
 
 export type CouchDbInfo = {
   db_name: string;
@@ -89,6 +90,7 @@ type AllDocsRow = {
     rev?: string;
     deleted?: boolean;
   };
+  doc?: LiveSyncDocument;
   error?: string;
 };
 
@@ -339,6 +341,18 @@ export class CouchDbClient {
     }
   }
 
+  async getDocumentsByIds(ids: string[]): Promise<Map<string, LiveSyncDocument>> {
+    if (ids.length === 0) {
+      return new Map();
+    }
+    const result = await this.requestJson<{ rows?: AllDocsRow[] }>("_all_docs?include_docs=true", true, "POST", { keys: ids });
+    return new Map(
+      (result.rows ?? [])
+        .filter((row) => !row.error && !row.value?.deleted && row.doc)
+        .map((row) => [row.id, row.doc as LiveSyncDocument])
+    );
+  }
+
   async getRecentChanges(limit: number): Promise<CouchDbChange[]> {
     const query = new URLSearchParams({
       include_docs: "true",
@@ -425,6 +439,51 @@ export class CouchDbClient {
       reused: reused + writeResult.reused,
       conflicts: writeResult.conflicts
     };
+  }
+
+  async getVersionDocumentsForFile(fileId: string): Promise<LiveSyncDocument[]> {
+    const { startKey, endKey } = versionDocumentRangeForFile(fileId);
+    const query = new URLSearchParams({
+      include_docs: "true",
+      startkey: JSON.stringify(startKey),
+      endkey: JSON.stringify(endKey)
+    });
+    const result = await this.requestJson<{ rows?: AllDocsRow[] }>(`_all_docs?${query.toString()}`);
+    return (result.rows ?? [])
+      .map((row) => row.doc)
+      .filter((doc): doc is LiveSyncDocument => !!doc && !doc._deleted);
+  }
+
+  async putVersionDocument(doc: LiveSyncDocument): Promise<boolean> {
+    const results = await this.bulkDocs([doc]);
+    const result = results[0];
+    if (result?.ok) {
+      return true;
+    }
+    if (result?.error === "conflict") {
+      return false;
+    }
+    throw new CouchDbClientError(
+      `Could not write version history document ${result?.id ?? doc._id}: ${result?.error ?? "unknown"} ${result?.reason ?? ""}`.trim()
+    );
+  }
+
+  async deleteDocuments(docs: LiveSyncDocument[]): Promise<number> {
+    const deletions = docs
+      .filter((doc) => doc._id && doc._rev)
+      .map((doc) => ({ ...doc, _deleted: true }));
+    const results = await this.bulkDocsInBatches(deletions);
+    let deleted = 0;
+    for (const result of results) {
+      if (result.ok) {
+        deleted++;
+      } else if (result.error !== "conflict" && result.error !== "not_found") {
+        throw new CouchDbClientError(
+          `Could not prune version history document ${result.id}: ${result.error ?? "unknown"} ${result.reason ?? ""}`.trim()
+        );
+      }
+    }
+    return deleted;
   }
 
   async deleteLiveSyncDocument(id: string): Promise<boolean> {

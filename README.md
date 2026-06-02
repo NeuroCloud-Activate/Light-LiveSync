@@ -16,7 +16,8 @@ It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmr
 - Restores saved credentials automatically on app start so mobile sync can resume without a repeated credential prompt.
 - Syncs vault configuration and plugin data along with notes.
 - Uses periodic sync as a fallback when mobile backgrounding or missed file events get in the way.
-- Automatically merges ordinary text edits, keeps recovery backups, and lets you restore from those backups in settings.
+- Automatically merges ordinary text edits, keeps recovery backups, and lets you restore from those backups in the Recovery tab.
+- Keeps encrypted previous-file versions in CouchDB so you can recover an older synced copy with only a few clicks.
 - Keeps the status UI calm and small: `Ready`, `Syncing`, or `Completed`, with upload/download KBps rates while active and detailed counts in the Activity tab.
 - Includes runtime checks and a non-secret evidence report for troubleshooting.
 
@@ -111,6 +112,21 @@ Each device still needs:
 
 The plugin itself does not create CouchDB users from inside the app. User/database creation happens only through the copied server-side helper command when you provide an existing CouchDB admin, which keeps that administrative step explicit.
 
+## Recovery And Versions
+
+Light-LiveSync keeps recovery simple. The Recovery tab gives you one place to restore from automatic local backups or from previous synced file versions.
+
+Version history runs quietly after successful uploads. It stores a small encrypted version marker for the file and reuses the encrypted content chunks already in CouchDB, so repeated versions avoid duplicating the same data. Retention is intentionally bounded: up to 10 versions per file, and only versions from the last 90 days.
+
+To recover an older synced file:
+
+1. Open **Recovery** in settings.
+2. Enter the vault path, or use the currently open file.
+3. Choose **Find versions**.
+4. Pick the version to restore.
+
+Before replacing the current file, Light-LiveSync creates a local recovery backup. The restored file is then queued for normal sync so the recovered copy can flow to your other devices.
+
 ## Security
 
 Security is a core part of the design, not an advanced mode.
@@ -138,6 +154,7 @@ The plugin is optimized around minimal work and minimal data movement.
 - A background worker is used when available, with a cooperative main-thread fallback.
 - Pulls large batches of CouchDB changes for faster catch-up, then caches them locally in bounded chunks so the UI can stay responsive.
 - Remote changes apply in batches with recovery backups.
+- Previous-file versions reuse existing encrypted CouchDB chunks instead of uploading a separate full copy for every version.
 - Failed uploads use capped backoff and do not block unrelated due changes.
 - Automatic sync pauses when the runtime reports offline.
 - Periodic sync acts as the fallback safety net.

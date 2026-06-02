@@ -1,6 +1,7 @@
 import { CouchDbClient, type RemoteInspection } from "./couchdb-client";
 import { pathToLiveSyncDocumentId, type LiveSyncBuildOptions, type LiveSyncPushBundle, type LocalFileSnapshot } from "./livesync-document-builder";
 import type { LocalDocumentStore, LocalStoreSummary } from "./local-document-store";
+import { writeVersionForFile } from "./version-history";
 import {
   DEFAULT_RUNTIME_SYNC_METRICS,
   credentialsAreLocked,
@@ -106,7 +107,15 @@ export type SyncProgress =
 
 export type SyncRemoteClient = Pick<
   CouchDbClient,
-  "ensureDatabase" | "ensureSyncParameters" | "inspect" | "getChangesSince" | "deleteLiveSyncDocument" | "putLiveSyncBundle"
+  | "ensureDatabase"
+  | "ensureSyncParameters"
+  | "inspect"
+  | "getChangesSince"
+  | "deleteLiveSyncDocument"
+  | "putLiveSyncBundle"
+  | "getVersionDocumentsForFile"
+  | "putVersionDocument"
+  | "deleteDocuments"
 >;
 
 type PushBatchOutcome = {
@@ -119,6 +128,10 @@ type PushBatchOutcome = {
   remoteDocsConflicts: number;
   localBytesRead: number;
   chunkDocsBuilt: number;
+  versionsSaved: number;
+  versionsSkipped: number;
+  versionsPruned: number;
+  versionsFailed: number;
 };
 
 type ReadySyncSettings = {
@@ -275,6 +288,10 @@ export class LightweightSyncEngine {
     metrics.remoteDocsConflicts = pushed.remoteDocsConflicts;
     metrics.localBytesRead = pushed.localBytesRead;
     metrics.chunkDocsBuilt = pushed.chunkDocsBuilt;
+    metrics.versionsSaved = pushed.versionsSaved;
+    metrics.versionsSkipped = pushed.versionsSkipped;
+    metrics.versionsPruned = pushed.versionsPruned;
+    metrics.versionsFailed = pushed.versionsFailed;
 
     if (await this.skipPullAfterFirstUpload(client, localStore, inspection, pushed)) {
       const summary = await localStore.getSummary();
@@ -415,7 +432,7 @@ export class LightweightSyncEngine {
     applied?: AutoApplyOutcome
   ): void {
     this.host.log(
-      `Sync requested (${reason}). Pushed ${pushed.pushed}, deleted ${pushed.deleted}, pulled ${pulledCount} remote changes from ${databaseName}.${applied ? ` Applied ${applied.applied}, merged ${applied.merged}, deleted ${applied.deleted}, backups ${applied.backedUp}, conflicts ${applied.conflicted}.` : ""}`
+      `Sync requested (${reason}). Pushed ${pushed.pushed}, deleted ${pushed.deleted}, pulled ${pulledCount} remote changes from ${databaseName}. Version history saved ${pushed.versionsSaved}, skipped ${pushed.versionsSkipped}, pruned ${pushed.versionsPruned}, failed ${pushed.versionsFailed}.${applied ? ` Applied ${applied.applied}, merged ${applied.merged}, deleted ${applied.deleted}, backups ${applied.backedUp}, conflicts ${applied.conflicted}.` : ""}`
     );
   }
 
@@ -434,7 +451,7 @@ export class LightweightSyncEngine {
       : "";
     return {
       ok: true,
-      message: `Uploaded ${pushed.pushed}, deleted ${pushed.deleted}, skipped ${pushed.skipped} unchanged file${pushed.skipped === 1 ? "" : "s"}. Downloaded ${pulled.pulledCount} remote change${pulled.pulledCount === 1 ? "" : "s"}.${applied ? ` Applied ${applied.applied + applied.merged + applied.deleted}.` : ""} Still waiting: ${pendingUpload} local upload${pendingUpload === 1 ? "" : "s"}, ${pendingApply} remote apply item${pendingApply === 1 ? "" : "s"}.${moreRemoteLikely ? " The remote returned a full batch, so more downloads may still be waiting." : ""}${nextPass}`,
+      message: `Uploaded ${pushed.pushed}, deleted ${pushed.deleted}, skipped ${pushed.skipped} unchanged file${pushed.skipped === 1 ? "" : "s"}. Version history saved ${pushed.versionsSaved}, pruned ${pushed.versionsPruned}, failed ${pushed.versionsFailed}. Downloaded ${pulled.pulledCount} remote change${pulled.pulledCount === 1 ? "" : "s"}.${applied ? ` Applied ${applied.applied + applied.merged + applied.deleted}.` : ""} Still waiting: ${pendingUpload} local upload${pendingUpload === 1 ? "" : "s"}, ${pendingApply} remote apply item${pendingApply === 1 ? "" : "s"}.${moreRemoteLikely ? " The remote returned a full batch, so more downloads may still be waiting." : ""}${nextPass}`,
       metrics,
       continueSync
     };
@@ -456,7 +473,11 @@ export class LightweightSyncEngine {
       remoteDocsReused: 0,
       remoteDocsConflicts: 0,
       localBytesRead: 0,
-      chunkDocsBuilt: 0
+      chunkDocsBuilt: 0,
+      versionsSaved: 0,
+      versionsSkipped: 0,
+      versionsPruned: 0,
+      versionsFailed: 0
     };
     if (pending.length === 0) {
       return outcome;
@@ -483,6 +504,10 @@ export class LightweightSyncEngine {
       outcome.remoteDocsConflicts += single.remoteDocsConflicts;
       outcome.localBytesRead += single.localBytesRead;
       outcome.chunkDocsBuilt += single.chunkDocsBuilt;
+      outcome.versionsSaved += single.versionsSaved;
+      outcome.versionsSkipped += single.versionsSkipped;
+      outcome.versionsPruned += single.versionsPruned;
+      outcome.versionsFailed += single.versionsFailed;
       this.host.reportProgress?.({
         phase: "push-file-complete",
         completed: index + 1,
@@ -556,7 +581,11 @@ export class LightweightSyncEngine {
           remoteDocsReused: 0,
           remoteDocsConflicts: 0,
           localBytesRead: 0,
-          chunkDocsBuilt: 0
+          chunkDocsBuilt: 0,
+          versionsSaved: 0,
+          versionsSkipped: 0,
+          versionsPruned: 0,
+          versionsFailed: 0
         };
       }
 
@@ -573,7 +602,11 @@ export class LightweightSyncEngine {
           remoteDocsReused: 0,
           remoteDocsConflicts: 0,
           localBytesRead: 0,
-          chunkDocsBuilt: 0
+          chunkDocsBuilt: 0,
+          versionsSaved: 0,
+          versionsSkipped: 0,
+          versionsPruned: 0,
+          versionsFailed: 0
         };
       }
 
@@ -589,7 +622,11 @@ export class LightweightSyncEngine {
           remoteDocsReused: 0,
           remoteDocsConflicts: 0,
           localBytesRead: Math.max(0, snapshot.size),
-          chunkDocsBuilt: 0
+          chunkDocsBuilt: 0,
+          versionsSaved: 0,
+          versionsSkipped: 0,
+          versionsPruned: 0,
+          versionsFailed: 0
         };
       }
 
@@ -601,6 +638,7 @@ export class LightweightSyncEngine {
         hashAlgorithm: settings.hashAlgorithm
       });
       const write = await client.putLiveSyncBundle(bundle.fileDocument, bundle.chunkDocuments);
+      const versionWrite = await this.writeVersionHistory(client, settings, bundle.fileDocument, fingerprint, path);
       await localStore.markLocalPushSucceeded([path]);
       await localStore.setLocalPushFingerprint(path, fingerprint);
       return {
@@ -612,7 +650,11 @@ export class LightweightSyncEngine {
         remoteDocsReused: write.reused,
         remoteDocsConflicts: write.conflicts,
         localBytesRead: Math.max(0, snapshot.size),
-        chunkDocsBuilt: bundle.chunkDocuments.length
+        chunkDocsBuilt: bundle.chunkDocuments.length,
+        versionsSaved: versionWrite.saved,
+        versionsSkipped: versionWrite.skipped,
+        versionsPruned: versionWrite.pruned,
+        versionsFailed: versionWrite.failed
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -630,8 +672,35 @@ export class LightweightSyncEngine {
         remoteDocsReused: 0,
         remoteDocsConflicts: 0,
         localBytesRead: 0,
-        chunkDocsBuilt: 0
+        chunkDocsBuilt: 0,
+        versionsSaved: 0,
+        versionsSkipped: 0,
+        versionsPruned: 0,
+        versionsFailed: 0
       };
+    }
+  }
+
+  private async writeVersionHistory(
+    client: SyncRemoteClient,
+    settings: LightweightLiveSyncSettings,
+    fileDocument: LiveSyncPushBundle["fileDocument"],
+    fingerprint: string,
+    path: string
+  ): Promise<{ saved: number; skipped: number; pruned: number; failed: number }> {
+    if (!settings.versioningEnabled) {
+      return { saved: 0, skipped: 0, pruned: 0, failed: 0 };
+    }
+    try {
+      const result = await writeVersionForFile(client, fileDocument, fingerprint, {
+        maxVersionsPerFile: settings.maxVersionsPerFile,
+        maxVersionAgeDays: settings.maxVersionAgeDays
+      });
+      return { ...result, failed: 0 };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.host.log(`Version history failed for ${path}: ${message}. The file upload still completed.`);
+      return { saved: 0, skipped: 0, pruned: 0, failed: 1 };
     }
   }
 

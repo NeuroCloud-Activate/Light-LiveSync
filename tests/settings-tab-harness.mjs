@@ -11,6 +11,11 @@ function render(settingsPatch) {
     app: {
       vault: {
         configDir: ".obsidian"
+      },
+      workspace: {
+        getActiveFile() {
+          return { path: "Notes/open.md" };
+        }
       }
     },
     settings: {
@@ -64,6 +69,10 @@ function render(settingsPatch) {
       return Promise.resolve([]);
     },
     restoreRecoveryBackup() {},
+    listFileVersions() {
+      return Promise.resolve([]);
+    },
+    restoreFileVersion() {},
     clearActivityLog() {},
     onActivityLogChanged() {
       return () => {};
@@ -103,6 +112,7 @@ assert.match(unconfigured, /Database User/);
 assert.match(unconfigured, /Database Password/);
 assert.match(unconfigured, /A low-noise vault sync setup/);
 assert.match(unconfigured, /Sync activity/);
+assert.match(unconfigured, /Recovery/);
 assert.match(unconfigured, /Advanced/);
 assert.doesNotMatch(unconfigured, /View/);
 assert.doesNotMatch(unconfigured, /current/);
@@ -267,10 +277,30 @@ assert.match(activity, /Direct CouchDB setup failed: HTTP 401/);
 assert.match(activity, /Clear/);
 assert.match(activity, /Last sync workload/);
 assert.match(activity, /Uploaded 1 file \(191 B read locally, 1 chunk doc built\)/);
-assert.match(activity, /Recover from backups/);
-assert.match(activity, /Recovery backups/);
-assert.match(activity, /Refresh/);
+assert.match(activity, /Version history saved 0, skipped 0, pruned 0, failed 0/);
+assert.doesNotMatch(activity, /Recover from backups/);
+assert.doesNotMatch(activity, /Recovery backups/);
 assert.doesNotMatch(activity, /Advanced sync tuning/);
+
+const recovery = render({
+  settingsTab: "recovery",
+  configured: true,
+  couchDb: {
+    uri: "http://example.com:5984",
+    database: "vault",
+    username: "user",
+    password: "password"
+  },
+  passphrase: "secret"
+});
+assert.match(recovery, /Previous file versions/);
+assert.match(recovery, /Background version history/);
+assert.match(recovery, /keeps up to 10 versions per file or 90 days/);
+assert.match(recovery, /File to recover/);
+assert.match(recovery, /Use open file/);
+assert.match(recovery, /Find versions/);
+assert.match(recovery, /Recover from backups/);
+assert.match(recovery, /Recovery backups/);
 
 const advanced = render({
   settingsTab: "advanced",
@@ -292,7 +322,7 @@ assert.doesNotMatch(advanced, /Remote database/);
 
 console.log(JSON.stringify({
   ok: true,
-  renderedStates: ["unconfigured", "locked", "firstRun", "failed", "additionalMissingParameters", "pendingApply", "activity", "advanced"],
+  renderedStates: ["unconfigured", "locked", "firstRun", "failed", "additionalMissingParameters", "pendingApply", "activity", "recovery", "advanced"],
   hasRecommendedNextStep: /Recommended next step/.test(unconfigured),
   hasFriendlyFailure: /CouchDB could not be reached/.test(failed),
   hasAddDeviceUriAction: /Generate URI/.test(unconfigured),
@@ -300,5 +330,6 @@ console.log(JSON.stringify({
   hasAutomaticApplyGuidance: /automatically and backups are created first/.test(pendingApply),
   hidesAdvancedByDefault: !/Sync failure cooldown/.test(unconfigured),
   hasActivityTab: /Last sync workload/.test(activity),
+  hasRecoveryTab: /Previous file versions/.test(recovery),
   showsAdvancedOnRequest: /Sync failure cooldown/.test(advanced)
 }, null, 2));

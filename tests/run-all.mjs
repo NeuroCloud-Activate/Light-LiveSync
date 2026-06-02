@@ -25,7 +25,8 @@ const tsHarnesses = [
   "sync-engine-stress-harness.mjs",
   "sync-worker-client-harness.mjs",
   "text-merge-harness.mjs",
-  "vault-scan-harness.mjs"
+  "vault-scan-harness.mjs",
+  "version-history-harness.mjs"
 ];
 const plainHarnesses = ["mobile-safety-harness.mjs", "sync-worker-bundle-harness.mjs"];
 

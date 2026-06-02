@@ -157,6 +157,15 @@ const fakeClient = {
   async putLiveSyncBundle(fileDocument, chunkDocuments) {
     putCalls.push({ fileDocument, chunkDocuments });
     return { fileId: fileDocument._id, written: 1, reused: 0, conflicts: 0 };
+  },
+  async getVersionDocumentsForFile() {
+    return [];
+  },
+  async putVersionDocument() {
+    return true;
+  },
+  async deleteDocuments() {
+    return 0;
   }
 };
 
@@ -203,6 +212,8 @@ assert.equal(outcome.metrics.appliedFiles, 1);
 assert.equal(outcome.metrics.localBytesRead, 20);
 assert.equal(outcome.metrics.remoteDocsWritten, 2);
 assert.equal(outcome.metrics.chunkDocsBuilt, 0);
+assert.equal(outcome.metrics.versionsSaved, 2);
+assert.equal(outcome.metrics.versionsFailed, 0);
 assert.ok(outcome.metrics.inspectMs >= 0);
 assert.ok(outcome.metrics.pushMs >= 0);
 assert.ok(outcome.metrics.pullMs >= 0);

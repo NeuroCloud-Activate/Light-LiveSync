@@ -71,6 +71,11 @@ import {
   restoreRecoveryBackup,
   type RecoveryBackupEntry
 } from "./recovery-backups";
+import {
+  listFileVersions,
+  restoreFileVersion,
+  type FileVersionEntry
+} from "./version-history";
 
 type CommandSpec = {
   id: string;
@@ -732,6 +737,53 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`Recovery restore failed: ${message}`);
       new Notice(`Recovery restore failed: ${message}`, 12000);
+    }
+  }
+
+  async listFileVersions(path: string): Promise<FileVersionEntry[]> {
+    if (!this.settings.configured || !hasUsableRemote(this.settings)) {
+      throw new Error("Light-LiveSync is not configured.");
+    }
+    if (!(await this.ensureCredentialsUnlocked())) {
+      throw new Error("Saved credentials could not be opened automatically.");
+    }
+    const runtimeSettings = this.getRuntimeSettings();
+    const normalizedPath = normalizePath(path).replace(/^\/+/, "");
+    const client = new CouchDbClient(runtimeSettings.couchDb);
+    const versions = await listFileVersions(
+      client,
+      normalizedPath,
+      this.documentTransformOptions(),
+      runtimeSettings.usePathObfuscation
+    );
+    this.log(`Version history check for ${normalizedPath}: found ${versions.length} saved version${versions.length === 1 ? "" : "s"}.`);
+    return versions;
+  }
+
+  async restoreFileVersion(entry: FileVersionEntry): Promise<void> {
+    try {
+      if (!(await this.ensureCredentialsUnlocked())) {
+        return;
+      }
+      const client = new CouchDbClient(this.getRuntimeSettings().couchDb);
+      const result = await restoreFileVersion(
+        client,
+        this.app.vault.adapter,
+        entry.id,
+        this.documentTransformOptions(),
+        this.conflictFolder()
+      );
+      this.queueVaultPath(result.restoredPath);
+      const backupMessage = result.createdPreRestoreBackup
+        ? ` A backup of the replaced file was kept at ${result.preRestoreBackupPath}.`
+        : "";
+      this.log(`Recovered ${result.restoredPath} from version saved ${new Date(entry.createdAt).toLocaleString()}.${backupMessage}`);
+      this.setStatus("Recovered version");
+      new Notice(`Recovered ${result.restoredPath}.${backupMessage}`, 12000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Version recovery failed: ${message}`);
+      new Notice(`Version recovery failed: ${message}`, 12000);
     }
   }
 

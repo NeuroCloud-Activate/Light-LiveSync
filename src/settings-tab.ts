@@ -1,9 +1,10 @@
 import { PluginSettingTab, Setting } from "obsidian";
 import type LightweightLiveSyncPlugin from "./main";
 import { credentialsAreLocked, normaliseCouchDbUri, normaliseDatabaseName } from "./settings";
+import type { FileVersionEntry } from "./version-history";
 
 type SettingsContainer = HTMLElement;
-type SettingsTabId = "sync" | "activity" | "advanced";
+type SettingsTabId = "sync" | "activity" | "recovery" | "advanced";
 
 export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   private readonly plugin: LightweightLiveSyncPlugin;
@@ -31,6 +32,9 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         break;
       case "advanced":
         this.renderAdvancedTab(containerEl);
+        break;
+      case "recovery":
+        this.renderRecoveryTab(containerEl);
         break;
       case "sync":
       default:
@@ -60,6 +64,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     const tabSpecs: { id: SettingsTabId; label: string }[] = [
       { id: "sync", label: "Sync" },
       { id: "activity", label: "Sync activity" },
+      { id: "recovery", label: "Recovery" },
       { id: "advanced", label: "Advanced" }
     ];
 
@@ -83,7 +88,6 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.renderSetupSection(containerEl);
     this.renderConnectionSection(containerEl);
     this.renderAutomaticSyncSummary(containerEl);
-    this.renderRecoveryBackups(containerEl);
   }
 
   private renderAdvancedTab(containerEl: SettingsContainer): void {
@@ -91,6 +95,11 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.renderAdvancedConnectionSection(containerEl);
     this.renderSchedulerSection(containerEl);
     this.renderFolderSection(containerEl);
+  }
+
+  private renderRecoveryTab(containerEl: SettingsContainer): void {
+    this.renderVersionRecovery(containerEl);
+    this.renderRecoveryBackups(containerEl);
   }
 
   private section(containerEl: SettingsContainer, title: string): SettingsContainer {
@@ -589,6 +598,11 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       });
   }
 
+  private activeFilePath(): string {
+    const activeFile = this.plugin.app.workspace?.getActiveFile?.() as { path?: unknown } | null | undefined;
+    return typeof activeFile?.path === "string" ? activeFile.path : "";
+  }
+
   private renderStatusSection(containerEl: SettingsContainer): void {
     this.section(containerEl, "Sync activity");
     new Setting(containerEl)
@@ -603,7 +617,6 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.renderPreviewStatus(containerEl);
     this.renderStagingStatus(containerEl);
     this.renderLiveApplyStatus(containerEl);
-    this.renderRecoveryBackups(containerEl);
   }
 
   private statusSummary(): string {
@@ -713,8 +726,92 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Last sync workload")
       .setDesc(
-        `Phases: inspect ${metrics.inspectMs}ms, push ${metrics.pushMs}ms, pull ${metrics.pullMs}ms, apply ${metrics.applyMs}ms. Uploaded ${metrics.pushedFiles} file${metrics.pushedFiles === 1 ? "" : "s"} (${formatBytes(metrics.localBytesRead)} read locally, ${metrics.chunkDocsBuilt} chunk doc${metrics.chunkDocsBuilt === 1 ? "" : "s"} built); remote docs written ${metrics.remoteDocsWritten}, reused ${metrics.remoteDocsReused}, conflicts ${metrics.remoteDocsConflicts}. Pulled ${metrics.pulledChanges} change${metrics.pulledChanges === 1 ? "" : "s"}; applied ${metrics.appliedFiles}, merged ${metrics.mergedFiles}, backups ${metrics.backedUpFiles}, unresolved conflicts ${metrics.conflictedFiles}.`
+        `Phases: inspect ${metrics.inspectMs}ms, push ${metrics.pushMs}ms, pull ${metrics.pullMs}ms, apply ${metrics.applyMs}ms. Uploaded ${metrics.pushedFiles} file${metrics.pushedFiles === 1 ? "" : "s"} (${formatBytes(metrics.localBytesRead)} read locally, ${metrics.chunkDocsBuilt} chunk doc${metrics.chunkDocsBuilt === 1 ? "" : "s"} built); remote docs written ${metrics.remoteDocsWritten}, reused ${metrics.remoteDocsReused}, conflicts ${metrics.remoteDocsConflicts}. Version history saved ${metrics.versionsSaved}, skipped ${metrics.versionsSkipped}, pruned ${metrics.versionsPruned}, failed ${metrics.versionsFailed}. Pulled ${metrics.pulledChanges} change${metrics.pulledChanges === 1 ? "" : "s"}; applied ${metrics.appliedFiles}, merged ${metrics.mergedFiles}, backups ${metrics.backedUpFiles}, unresolved conflicts ${metrics.conflictedFiles}.`
       );
+  }
+
+  private renderVersionRecovery(containerEl: SettingsContainer): void {
+    this.section(containerEl, "Previous file versions");
+    new Setting(containerEl)
+      .setName("Background version history")
+      .setDesc(
+        "After a file uploads successfully, Light-LiveSync keeps a small encrypted version marker that reuses the same CouchDB content chunks. It keeps up to 10 versions per file or 90 days, whichever is smaller."
+      )
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.versioningEnabled).onChange(async (value) => {
+          this.plugin.settings.versioningEnabled = value;
+          await this.plugin.saveSettingsAndReschedule();
+          this.display();
+        });
+      });
+
+    let requestedPath = this.activeFilePath() ?? "";
+    let pathText: { inputEl: HTMLInputElement | HTMLTextAreaElement; setValue(value: string): unknown } | undefined;
+    const listEl = containerEl.createEl("div");
+    listEl.addClass("light-livesync-recovery-list");
+
+    const renderVersionList = (versions: FileVersionEntry[], path: string) => {
+      listEl.empty();
+      if (versions.length === 0) {
+        listEl.createEl("p", { text: `No saved versions found for ${path}. Versions appear here after that file has synced with versioning enabled.` });
+        return;
+      }
+      listEl.createEl("p", { text: `${versions.length} saved version${versions.length === 1 ? "" : "s"} found for ${path}. Restoring creates a backup of the current file first.` });
+      for (const version of versions) {
+        new Setting(listEl)
+          .setName(formatTime(version.createdAt))
+          .setDesc(`${version.path}. ${version.contentType === "binary" ? "Binary file" : "Text file"}. Size: ${formatBytes(version.size)}. Content chunks reused: ${version.chunkCount}.`)
+          .addButton((button) => {
+            button.setButtonText("Restore").onClick(async () => {
+              await this.plugin.restoreFileVersion(version);
+              this.display();
+            });
+          });
+      }
+    };
+
+    const findVersions = async () => {
+      const path = requestedPath.trim().replace(/^\/+/, "");
+      listEl.empty();
+      if (!path) {
+        listEl.createEl("p", { text: "Enter a vault file path, or open a file and use the open-file shortcut." });
+        return;
+      }
+      listEl.createEl("p", { text: `Looking for saved versions of ${path}...` });
+      try {
+        renderVersionList(await this.plugin.listFileVersions(path), path);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        listEl.empty();
+        listEl.createEl("p", { text: `Could not load versions: ${friendlyError(message)}` });
+      }
+    };
+
+    new Setting(containerEl)
+      .setName("File to recover")
+      .setDesc("Use a vault path such as Notes/example.md. The open-file button fills this in from the note you are currently viewing.")
+      .addText((text) => {
+        pathText = text;
+        text
+          .setPlaceholder("Notes/example.md")
+          .setValue(requestedPath)
+          .onChange((value) => {
+            requestedPath = value;
+          });
+      })
+      .addButton((button) => {
+        button.setButtonText("Use open file").onClick(() => {
+          requestedPath = this.activeFilePath() ?? requestedPath;
+          pathText?.setValue(requestedPath);
+        });
+      })
+      .addButton((button) => {
+        button.setButtonText("Find versions").setCta().onClick(() => {
+          void findVersions();
+        });
+      });
+
+    listEl.createEl("p", { text: "Choose a file and find versions when you need to recover an older copy." });
   }
 
   private renderQueueStatus(containerEl: SettingsContainer): void {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.18
+
+- Adds background file versioning after successful uploads.
+- Keeps version history bounded to 10 versions per file or 90 days.
+- Reuses existing encrypted CouchDB content chunks for version history to avoid duplicate file uploads.
+- Adds a dedicated Recovery settings tab for restoring previous synced versions and local recovery backups.
+- Creates a local recovery backup before replacing a file with a restored version.
+- Adds Activity-tab metrics for version history saved, skipped, pruned, and failed counts.
+
 ## 0.1.17
 
 - Simplifies the status bar to `Ready`, `Syncing`, and `Completed`; completed syncs hold for 3 seconds before returning to ready.

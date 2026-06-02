@@ -56,6 +56,11 @@ export type LiveSyncDocument = {
   eden?: Record<string, unknown>;
   e_?: boolean;
   pbkdf2salt?: string;
+  llsVersion?: boolean;
+  versionFor?: string;
+  versionCreatedAt?: number;
+  versionHash?: string;
+  versionSnapshot?: LiveSyncDocument;
 };
 
 export function isLiveSyncFileDocument(doc: LiveSyncDocument | undefined): doc is LiveSyncFileDocument {
