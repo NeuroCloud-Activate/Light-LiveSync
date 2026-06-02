@@ -77,6 +77,32 @@ try {
 
 assert.equal(shortenedTimeouts, 1);
 
+const originalUnauthorizedFetch = globalThis.fetch;
+globalThis.fetch = async (url, options) => {
+  assert.equal(url, "http://example.invalid:5984/transportcheck");
+  assert.match(options.headers.Authorization, /^Basic /);
+  return new Response(JSON.stringify({ error: "unauthorized", reason: "Name or password is incorrect." }), {
+    status: 401,
+    headers: { "Content-Type": "application/json" }
+  });
+};
+
+try {
+  await assert.rejects(
+    () => createClient(false).getDatabaseInfo(),
+    (error) => {
+      assert.equal(error instanceof CouchDbClientError, true);
+      assert.equal(error.status, 401);
+      assert.match(error.message, /rejected the username or password/);
+      assert.match(error.message, /Username: user/);
+      assert.match(error.message, /Database: transportcheck/);
+      return true;
+    }
+  );
+} finally {
+  globalThis.fetch = originalUnauthorizedFetch;
+}
+
 const originalSecurityFetch = globalThis.fetch;
 const securityRequests = [];
 globalThis.fetch = async (url, options) => {
@@ -114,6 +140,7 @@ console.log(JSON.stringify({
   defaultFetchTransport: fetchCalls === 1,
   addressUnreachableGuidance: true,
   timeoutGuidance: true,
+  unauthorizedGuidance: true,
   shortenedTimeouts,
   databaseSecurityRequests: securityRequests.length
 }, null, 2));

@@ -215,6 +215,29 @@ function couchDbTransportMessage(error: unknown, uri: string): string {
   return `CouchDB request could not be sent to ${uri}. ${message}`;
 }
 
+function couchDbHttpErrorMessage(status: number, settings: CouchDbSettings): string {
+  if (status === 401) {
+    return [
+      "CouchDB rejected the username or password with HTTP 401.",
+      "Check that the CouchDB username and password are exact, including case and special characters.",
+      "If the account was just created, confirm it can log in to the same CouchDB server and database.",
+      `Server: ${settings.uri}`,
+      `Database: ${settings.database || "not selected"}`,
+      `Username: ${settings.username || "not provided"}`
+    ].join(" ");
+  }
+  if (status === 403) {
+    return [
+      "CouchDB accepted the account but blocked this action with HTTP 403.",
+      "Confirm the user has permission to create, read, and write the selected database.",
+      `Server: ${settings.uri}`,
+      `Database: ${settings.database || "not selected"}`,
+      `Username: ${settings.username || "not provided"}`
+    ].join(" ");
+  }
+  return `CouchDB request failed with HTTP ${status}.`;
+}
+
 export class CouchDbClient {
   private readonly settings: CouchDbSettings;
 
@@ -474,7 +497,7 @@ export class CouchDbClient {
   private async requestJson<T>(path: string, includeDatabase = true, method = "GET", body?: unknown): Promise<T> {
     const response = await this.requestRaw(path, includeDatabase, method, body);
     if (response.status < 200 || response.status >= 300) {
-      throw new CouchDbClientError(`CouchDB request failed with HTTP ${response.status}.`, response.status);
+      throw new CouchDbClientError(couchDbHttpErrorMessage(response.status, this.settings), response.status);
     }
 
     const text = textFromResponse(response);

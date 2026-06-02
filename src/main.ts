@@ -37,7 +37,7 @@ import { LightweightSyncEngine, type SyncOutcome } from "./sync-engine";
 import { OptionalSyncWorkerClient } from "./sync-worker-client";
 import { CalmStatusPresenter } from "./status-presenter";
 import type { LiveSyncBuildOptions, LocalFileSnapshot } from "./livesync-document-builder";
-import { CouchDbClient, type RemoteInspection } from "./couchdb-client";
+import { CouchDbClient, CouchDbClientError, type RemoteInspection } from "./couchdb-client";
 import { verifyCouchDbConnection } from "./connection-verifier";
 import { buildRuntimeSmokeCheckReport } from "./runtime-smoke-check";
 import { buildRuntimeCapabilityReport, type RuntimeCapabilitySnapshot } from "./runtime-capabilities";
@@ -404,13 +404,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   async configureDirectCouchDb(input: DirectCouchDbSetupInput): Promise<void> {
     try {
       const nextSettings = settingsFromDirectCouchDbSetup(input);
-      const client = new CouchDbClient(nextSettings.couchDb);
       this.setStatus("Connecting CouchDB");
 
-      const verification = await verifyCouchDbConnection(client, {
-        allowDatabaseCreation: true,
-        allowSyncParameterCreation: true
-      });
+      const verification = await this.verifyDirectSetupWithTransportFallback(nextSettings);
 
       const sessionCredentials = credentialPayloadFromSettings(nextSettings);
       nextSettings.credentialStore = await this.encryptCredentialPayloadForSettings(nextSettings, sessionCredentials, nextSettings.passphrase);
@@ -430,6 +426,42 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       this.log(`Direct CouchDB setup failed: ${message}`);
       new Notice(`Direct CouchDB setup failed: ${message}`);
     }
+  }
+
+  private async verifyDirectSetupWithTransportFallback(settings: LightweightLiveSyncSettings) {
+    try {
+      return await verifyCouchDbConnection(new CouchDbClient(settings.couchDb), {
+        allowDatabaseCreation: true,
+        allowSyncParameterCreation: true
+      });
+    } catch (error) {
+      if (!this.shouldRetryDirectSetupWithRequestApi(error, settings)) {
+        throw error;
+      }
+      const fallbackSettings: LightweightLiveSyncSettings = {
+        ...settings,
+        couchDb: {
+          ...settings.couchDb,
+          useRequestApi: true
+        }
+      };
+      this.setStatus("Retrying CouchDB through app request API");
+      const verification = await verifyCouchDbConnection(new CouchDbClient(fallbackSettings.couchDb), {
+        allowDatabaseCreation: true,
+        allowSyncParameterCreation: true
+      });
+      settings.couchDb.useRequestApi = true;
+      return verification;
+    }
+  }
+
+  private shouldRetryDirectSetupWithRequestApi(error: unknown, settings: LightweightLiveSyncSettings): boolean {
+    if (settings.couchDb.useRequestApi || typeof requestUrl !== "function") {
+      return false;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    const status = error instanceof CouchDbClientError ? error.status : undefined;
+    return status === 401 || status === 403 || /CouchDB request could not be sent|Could not reach CouchDB|Failed to fetch/i.test(message);
   }
 
   async importSetupUri(uriOrPayload: string, passphrase: string): Promise<void> {
