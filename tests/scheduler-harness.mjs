@@ -107,6 +107,28 @@ await new Promise((resolve) => setTimeout(resolve, 30));
 assert.equal(continuationCalls, 2);
 assert.match(continueLogs.join(" "), /continue with another sync pass/);
 
+const minimumIntervalReasons = [];
+const reasonAwareScheduler = new SyncScheduler(
+  {
+    async sync() {
+      return { ok: true, message: "Reason-aware sync ok." };
+    }
+  },
+  {
+    getMinimumIntervalMs: (reason) => {
+      minimumIntervalReasons.push(reason);
+      return reason === "periodic" ? 15 : 0;
+    },
+    log: () => {},
+    setStatus: () => {}
+  }
+);
+reasonAwareScheduler.request("manual", true);
+await new Promise((resolve) => setTimeout(resolve, 10));
+reasonAwareScheduler.request("periodic");
+await new Promise((resolve) => setTimeout(resolve, 25));
+assert.deepEqual(minimumIntervalReasons, ["periodic"]);
+
 console.log(JSON.stringify({
   ok: true,
   starts: starts.length,
@@ -114,5 +136,6 @@ console.log(JSON.stringify({
   capturedFailure: finishes[1].errorMessage,
   automaticCooldown: true,
   manualBypass: true,
-  automaticContinuation: true
+  automaticContinuation: true,
+  reasonAwareMinimum: true
 }, null, 2));

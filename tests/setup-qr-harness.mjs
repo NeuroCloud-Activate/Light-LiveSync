@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { decodeSettingsFromSetupQr } from "../src/setup-qr.ts";
 import { settingsForDisk, settingsFromUpstreamSetup } from "../src/settings.ts";
 
@@ -39,6 +40,7 @@ const disk = settingsForDisk(projected);
 if (projected.deviceSetupRole !== "additional-device") {
   throw new Error(`Expected QR import to use additional-device role, got ${projected.deviceSetupRole}.`);
 }
+assert.equal(projected.periodicSyncIntervalSec, 30);
 
 console.log(JSON.stringify({
   ok: true,

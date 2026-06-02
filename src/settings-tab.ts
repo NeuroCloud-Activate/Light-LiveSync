@@ -495,7 +495,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.renderNumberSetting(containerEl, "First retry after failed upload", "failedPushRetryBaseSec", 5, "Seconds before retrying a failed upload. The changed file stays queued safely.");
     this.renderNumberSetting(containerEl, "Longest retry delay", "failedPushRetryMaxSec", 30, "Maximum seconds between retry attempts for the same failed upload.");
     this.renderNumberSetting(containerEl, "Sync failure cooldown", "syncFailureCooldownSec", 30, "Seconds automatic sync waits after a failed run before trying again. Manual Sync now can still run immediately.");
-    this.renderNumberSetting(containerEl, "Remote check interval", "periodicSyncIntervalSec", 30, "Seconds between automatic CouchDB checks for changes from other devices. Foregrounding the app also triggers a safe check.");
+    this.renderNumberSetting(containerEl, "Remote check interval", "periodicSyncIntervalSec", 15, "Seconds between automatic CouchDB checks for changes from other devices. Normal checks are capped at 30 seconds; mobile foreground checks use 15 seconds.", 30);
     this.renderNumberSetting(containerEl, "Minimum time between syncs", "minimumSyncIntervalMs", 5000, "Milliseconds. Startup, manual, save-triggered, and periodic sync requests all share this throttle.");
   }
 
@@ -535,7 +535,8 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     name: string,
     key: "periodicSyncIntervalSec" | "minimumSyncIntervalMs" | "vaultChangeBatchWindowSec" | "maxPushChangesPerSync" | "maxStorageApplyConcurrency" | "failedPushRetryBaseSec" | "failedPushRetryMaxSec" | "syncFailureCooldownSec",
     minimum: number,
-    description: string
+    description: string,
+    maximum?: number
   ): void {
     new Setting(containerEl)
       .setName(name)
@@ -544,7 +545,8 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         text.setValue(String(this.plugin.settings[key])).onChange(async (value) => {
           const parsed = Number(value);
           if (Number.isFinite(parsed)) {
-            this.plugin.settings[key] = Math.max(minimum, Math.round(parsed));
+            const rounded = Math.max(minimum, Math.round(parsed));
+            this.plugin.settings[key] = maximum === undefined ? rounded : Math.min(maximum, rounded);
             await this.plugin.saveSettingsAndReschedule();
           }
         });

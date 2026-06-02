@@ -1,5 +1,7 @@
 export type RemoteKind = "couchdb";
 export type DeviceSetupRole = "initial-device" | "additional-device";
+export const DEFAULT_REMOTE_CHECK_INTERVAL_SEC = 30;
+export const FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC = 15;
 
 export type CouchDbSettings = {
   uri: string;
@@ -234,7 +236,7 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
   failedPushRetryBaseSec: 60,
   failedPushRetryMaxSec: 900,
   syncFailureCooldownSec: 120,
-  periodicSyncIntervalSec: 60,
+  periodicSyncIntervalSec: DEFAULT_REMOTE_CHECK_INTERVAL_SEC,
   minimumSyncIntervalMs: 30000,
   maxStorageApplyConcurrency: 50,
   maxChunkFetchConcurrency: 8,
@@ -420,7 +422,7 @@ export function settingsFromUpstreamSetup(upstream: UpstreamSetupSettings): Ligh
     failedPushRetryBaseSec: DEFAULT_SETTINGS.failedPushRetryBaseSec,
     failedPushRetryMaxSec: DEFAULT_SETTINGS.failedPushRetryMaxSec,
     syncFailureCooldownSec: DEFAULT_SETTINGS.syncFailureCooldownSec,
-    periodicSyncIntervalSec: Math.max(30, periodicInterval),
+    periodicSyncIntervalSec: Math.min(DEFAULT_REMOTE_CHECK_INTERVAL_SEC, Math.max(FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC, periodicInterval)),
     minimumSyncIntervalMs: Math.max(5000, syncMinimumInterval),
     maxChunkFetchConcurrency: Math.min(20, numberValue(upstream.concurrencyOfReadChunksOnline, 8)),
     showAdvancedSettings: DEFAULT_SETTINGS.showAdvancedSettings,

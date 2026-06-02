@@ -326,6 +326,8 @@ assert.match(advanced, /Advanced sync tuning/);
 assert.match(advanced, /Sync failure cooldown/);
 assert.match(advanced, /Manual Sync now can still run immediately/);
 assert.match(advanced, /Max remote files applied per sync/);
+assert.match(advanced, /Remote check interval/);
+assert.match(advanced, /mobile foreground checks use 15 seconds/);
 assert.match(advanced, /Custom request headers/);
 assert.doesNotMatch(advanced, /Remote database/);
 

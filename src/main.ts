@@ -21,6 +21,8 @@ import { LightweightLiveSyncSettingTab } from "./settings-tab";
 import { LocalDocumentStore, type LocalStoreSummary } from "./local-document-store";
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_REMOTE_CHECK_INTERVAL_SEC,
+  FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC,
   applyCredentialPayload,
   type CredentialPayload,
   credentialPayloadFromSettings,
@@ -152,7 +154,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     });
 
     this.scheduler = new SyncScheduler(this.engine, {
-      getMinimumIntervalMs: () => this.settings.minimumSyncIntervalMs,
+      getMinimumIntervalMs: (reason) => this.minimumIntervalMsForSyncReason(reason),
       getFailureCooldownMs: () => this.settings.syncFailureCooldownSec * 1000,
       log: (message) => this.log(message),
       setStatus: (message) => this.setStatus(message),
@@ -258,8 +260,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (loaded?.maxStorageApplyConcurrency === undefined || loaded.maxStorageApplyConcurrency <= 25) {
       this.settings.maxStorageApplyConcurrency = DEFAULT_SETTINGS.maxStorageApplyConcurrency;
     }
-    if (loaded?.periodicSyncIntervalSec === undefined || loaded.periodicSyncIntervalSec >= 300) {
-      this.settings.periodicSyncIntervalSec = DEFAULT_SETTINGS.periodicSyncIntervalSec;
+    if (loaded?.periodicSyncIntervalSec === undefined || loaded.periodicSyncIntervalSec > DEFAULT_REMOTE_CHECK_INTERVAL_SEC) {
+      this.settings.periodicSyncIntervalSec = DEFAULT_REMOTE_CHECK_INTERVAL_SEC;
+    } else if (loaded.periodicSyncIntervalSec < FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC) {
+      this.settings.periodicSyncIntervalSec = FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC;
     }
     if (Platform.isMobile && !this.settings.couchDb.useRequestApi) {
       this.settings.couchDb.useRequestApi = true;
@@ -1462,7 +1466,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         return;
       }
       const now = Date.now();
-      const throttleMs = Math.max(30_000, this.settings.minimumSyncIntervalMs);
+      const throttleMs = this.minimumIntervalMsForSyncReason("periodic");
       if (now - this.lastForegroundRemoteCheckAt < throttleMs) {
         return;
       }
@@ -1471,6 +1475,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       this.scheduler.request("periodic", true);
     };
     const handleVisibilityChange = () => {
+      this.reschedulePeriodicSync();
       if (typeof document === "undefined" || !document.hidden) {
         requestForegroundCheck();
       }
@@ -1516,12 +1521,32 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!this.settings.periodicSync || this.settings.periodicSyncIntervalSec <= 0 || !this.canRunAutomaticSync()) {
       return;
     }
+    const intervalSec = this.effectiveRemoteCheckIntervalSec();
     this.periodicTimer = window.setInterval(() => {
       if (this.canRunAutomaticSync()) {
         this.scheduler.request("periodic");
       }
-    }, this.settings.periodicSyncIntervalSec * 1000);
+    }, intervalSec * 1000);
     this.registerInterval(this.periodicTimer);
+  }
+
+  private effectiveRemoteCheckIntervalSec(): number {
+    const normalInterval = Math.min(
+      DEFAULT_REMOTE_CHECK_INTERVAL_SEC,
+      Math.max(FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC, Math.round(this.settings.periodicSyncIntervalSec || DEFAULT_REMOTE_CHECK_INTERVAL_SEC))
+    );
+    return this.isMobileForeground() ? FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC : normalInterval;
+  }
+
+  private isMobileForeground(): boolean {
+    return Platform.isMobile && (typeof document === "undefined" || !document.hidden);
+  }
+
+  private minimumIntervalMsForSyncReason(reason: string): number {
+    if (reason === "periodic") {
+      return this.effectiveRemoteCheckIntervalSec() * 1000;
+    }
+    return Math.max(FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC * 1000, this.settings.minimumSyncIntervalMs);
   }
 
   private isNetworkLikelyOnline(): boolean {

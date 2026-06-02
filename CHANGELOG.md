@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.30
+
+- Caps normal automatic remote checks at 30 seconds for faster cross-device pickup without constant network chatter.
+- Uses a 15-second remote check cadence while a mobile device is foregrounded, so iPad catches desktop edits sooner when the app is open.
+- Keeps local edit uploads, retries, and non-periodic syncs on their existing sync throttle while allowing faster remote-check polling.
+- Caps imported setup URI and QR remote-check intervals to the same 30-second normal maximum.
+
 ## 0.1.29
 
 - Reduces the default automatic remote check interval from five minutes to one minute so other devices pick up uploaded edits much sooner.

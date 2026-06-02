@@ -5,7 +5,7 @@ export type SchedulerEngine = {
 };
 
 export type SchedulerHost = {
-  getMinimumIntervalMs(): number;
+  getMinimumIntervalMs(reason: SyncReason): number;
   getFailureCooldownMs?(): number;
   log(message: string): void;
   setStatus(message: string): void;
@@ -62,7 +62,7 @@ export class SyncScheduler {
 
   private delayUntilNextAllowedRun(reason: SyncReason): number {
     const elapsed = Date.now() - this.lastStartedAt;
-    const minimumDelay = Math.max(0, this.host.getMinimumIntervalMs() - elapsed);
+    const minimumDelay = Math.max(0, this.host.getMinimumIntervalMs(reason) - elapsed);
     const cooldownDelay = reason === "manual"
       ? 0
       : Math.max(0, this.nextAutomaticRunAfter - Date.now());
