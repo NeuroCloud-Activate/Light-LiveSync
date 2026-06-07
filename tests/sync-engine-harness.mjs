@@ -478,6 +478,72 @@ assert.equal(noOpOutcome.metrics.pushedFiles, 0);
 assert.equal(noOpOutcome.metrics.remoteDocsWritten, 0);
 assert.equal(noOpOutcome.metrics.localBytesRead, 12);
 
+const metadataNoOpStore = new MemoryStore([
+  { path: "notes/metadata-same.md", deleted: false, queuedAt: 1, updatedAt: 1, attempts: 0, nextAttemptAt: 0, lastError: "" }
+]);
+const metadataSnapshot = {
+  path: "notes/metadata-same.md",
+  content: "metadata same",
+  ctime: 1,
+  mtime: 20,
+  size: 13
+};
+const metadataDigest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(metadataSnapshot.content));
+const metadataHex = Array.from(new Uint8Array(metadataDigest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+await metadataNoOpStore.setLocalPushFingerprint(
+  metadataSnapshot.path,
+  `v2:text:${metadataSnapshot.size}:${metadataSnapshot.mtime}:${metadataHex}`
+);
+let metadataInfoCalls = 0;
+let metadataReadCalls = 0;
+let metadataBuildCalls = 0;
+const metadataNoOpEngine = new LightweightSyncEngine({
+  getSettings: () => settings,
+  updateRemoteInspection: async () => {},
+  updateLocalQueue: async () => {},
+  getLocalStore: () => metadataNoOpStore,
+  readLocalFileInfo: async () => {
+    metadataInfoCalls += 1;
+    return {
+      path: metadataSnapshot.path,
+      ctime: metadataSnapshot.ctime,
+      mtime: metadataSnapshot.mtime,
+      size: metadataSnapshot.size,
+      contentType: "text"
+    };
+  },
+  readLocalFileSnapshot: async () => {
+    metadataReadCalls += 1;
+    throw new Error("Metadata no-op push should not read local content.");
+  },
+  buildLocalPushBundle: async () => {
+    metadataBuildCalls += 1;
+    throw new Error("Metadata no-op push should not build a bundle.");
+  },
+  applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
+  createRemoteClient: () => ({
+    ...fakeClient,
+    async getChangesSince() {
+      return { lastSeq: "0", changes: [] };
+    },
+    async putLiveSyncBundle() {
+      throw new Error("Metadata no-op push should not write to CouchDB.");
+    },
+    async putLiveSyncBundles() {
+      throw new Error("Metadata no-op push should not write to CouchDB.");
+    }
+  }),
+  log: () => {}
+});
+const metadataNoOpOutcome = await metadataNoOpEngine.sync("vault-change");
+assert.equal(metadataNoOpOutcome.ok, true);
+assert.equal(metadataInfoCalls, 1);
+assert.equal(metadataReadCalls, 0);
+assert.equal(metadataBuildCalls, 0);
+assert.equal(metadataNoOpOutcome.metrics.skippedFiles, 1);
+assert.equal(metadataNoOpOutcome.metrics.pushedFiles, 0);
+assert.equal(metadataNoOpOutcome.metrics.localBytesRead, 0);
+
 const deletePushStore = new MemoryStore([
   { path: "notes/remove-me.md", deleted: true, queuedAt: 1, updatedAt: 1, attempts: 0, nextAttemptAt: 0, lastError: "" }
 ]);

@@ -40,7 +40,14 @@ import {
   type LightweightLiveSyncSettings
 } from "./settings";
 import { SyncScheduler } from "./scheduler";
-import { LightweightSyncEngine, type SyncOutcome, type SyncProgress, type SyncRemoteClient } from "./sync-engine";
+import {
+  LightweightSyncEngine,
+  localPushFingerprintMatchesFileInfo,
+  type LocalFileInfo,
+  type SyncOutcome,
+  type SyncProgress,
+  type SyncRemoteClient
+} from "./sync-engine";
 import { OptionalSyncWorkerClient } from "./sync-worker-client";
 import { EMBEDDED_SYNC_WORKER_SOURCE } from "./embedded-sync-worker-source";
 import { CalmStatusPresenter } from "./status-presenter";
@@ -111,6 +118,16 @@ function applyReasonSummary(label: string, reasons: string[]): string {
 }
 
 const FAST_CONFIG_SYNC_DELAY_MS = 2000;
+const SNAPSHOT_CACHE_MAX_ENTRIES = 96;
+const SNAPSHOT_CACHE_MAX_BYTES = 12 * 1024 * 1024;
+const SNAPSHOT_CACHE_MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+type SnapshotCacheEntry = {
+  snapshot: LocalFileSnapshot;
+  cacheKey: string;
+  bytes: number;
+  usedAt: number;
+};
 
 export default class LightweightLiveSyncPlugin extends Plugin {
   settings: LightweightLiveSyncSettings = DEFAULT_SETTINGS;
@@ -134,6 +151,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private workerScriptSourceCache?: string;
   private runtimeDiagnosticsSaveTimer?: number;
   private lastForegroundRemoteCheckAt = 0;
+  private localSnapshotCache = new Map<string, SnapshotCacheEntry>();
+  private localSnapshotCacheBytes = 0;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -148,6 +167,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       updateLocalQueue: (summary) => this.updateLocalQueue(summary),
       queueCurrentVaultForSync: () => this.queueCurrentVaultForSync("Automatic first sync"),
       getLocalStore: (databaseName) => this.getLocalStore(databaseName),
+      readLocalFileInfo: (path) => this.readLocalFileInfo(path),
       readLocalFileSnapshot: (path) => this.readLocalFileSnapshot(path),
       buildLocalPushBundle: (snapshot, options) => this.buildLocalPushBundle(snapshot, options),
       applyPulledChanges: (databaseName, client) => this.applyPulledChanges(databaseName, client),
@@ -192,11 +212,16 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.reschedulePeriodicSync();
 
     this.app.workspace.onLayoutReady(() => {
-      void this.runAutomaticRuntimeCheck();
       if (this.configuredAtLoad && this.settings.syncOnStart && this.canRunAutomaticSync()) {
         void this.queueRecentlyChangedConfigForSync("Startup config scan").finally(() => {
+          this.log("Startup sync requested immediately.");
           this.scheduler.request("startup", true);
         });
+        window.setTimeout(() => {
+          void this.runAutomaticRuntimeCheck();
+        }, 2500);
+      } else {
+        void this.runAutomaticRuntimeCheck();
       }
     });
   }
@@ -209,6 +234,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.clearRuntimeDiagnosticsSaveTimer();
     this.clearPeriodicTimer();
     this.clearVaultChangeBatchTimer();
+    this.clearLocalSnapshotCache();
     for (const store of this.localStores.values()) {
       store.close();
     }
@@ -1742,7 +1768,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       ...this.settings,
       localQueue
     };
-    await this.saveSettingsAndReschedule();
+    this.scheduleRuntimeDiagnosticsSave();
   }
 
   private async updateLocalPreview(summary: ReconstructionBatchSummary): Promise<void> {
@@ -1759,7 +1785,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       ...this.settings,
       localPreview
     };
-    await this.saveSettingsAndReschedule();
+    this.scheduleRuntimeDiagnosticsSave();
   }
 
   private async updateLocalStaging(result: StagingApplyResult): Promise<void> {
@@ -1774,7 +1800,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       ...this.settings,
       localStaging
     };
-    await this.saveSettingsAndReschedule();
+    this.scheduleRuntimeDiagnosticsSave();
   }
 
   private async updateLocalLiveApply(result: LiveVaultApplyResult): Promise<void> {
@@ -1794,7 +1820,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       ...this.settings,
       localLiveApply
     };
-    await this.saveSettingsAndReschedule();
+    this.scheduleRuntimeDiagnosticsSave();
   }
 
   private recordSyncStart(reason: string, startedAt: number): void {
@@ -1924,6 +1950,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!this.settings.couchDb.database) {
       return;
     }
+    this.forgetLocalSnapshot(path);
     const store = this.getLocalStore(this.settings.couchDb.database);
     await this.updateLocalQueue(await store.queueLocalChange(path, deleted));
   }
@@ -1939,16 +1966,42 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
 
     this.setStatus("Scanning vault");
-    const changes = paths.map((path) => ({
+    const store = this.getLocalStore(this.settings.couchDb.database);
+    const changedPaths = await this.filterPathsNeedingLocalPush(paths, store);
+    if (changedPaths.length === 0) {
+      const summary = await store.getSummary();
+      await this.updateLocalQueue(summary);
+      this.log(`${label} checked ${paths.length} vault file${paths.length === 1 ? "" : "s"} locally; no changed files needed upload.`);
+      await this.yieldToUi();
+      return summary;
+    }
+
+    const changes = changedPaths.map((path) => ({
       path,
       deleted: false
     }));
-    const store = this.getLocalStore(this.settings.couchDb.database);
     const summary = await store.queueLocalChanges(changes);
     await this.updateLocalQueue(summary);
-    this.log(`${label} queued ${changes.length} vault file${changes.length === 1 ? "" : "s"} for fingerprint-checked upload.`);
+    const skipped = paths.length - changedPaths.length;
+    this.log(`${label} queued ${changes.length} changed vault file${changes.length === 1 ? "" : "s"} for upload; ${skipped} unchanged file${skipped === 1 ? "" : "s"} skipped locally.`);
     await this.yieldToUi();
     return summary;
+  }
+
+  private async filterPathsNeedingLocalPush(paths: string[], store: LocalDocumentStore): Promise<string[]> {
+    const changed: string[] = [];
+    const fingerprints = await store.getLocalPushFingerprints(paths);
+    for (const [index, path] of paths.entries()) {
+      const info = await this.readLocalFileInfo(path);
+      const fingerprint = fingerprints.get(path) ?? "";
+      if (!localPushFingerprintMatchesFileInfo(fingerprint, info)) {
+        changed.push(path);
+      }
+      if (index > 0 && index % 50 === 0) {
+        await this.yieldToUi();
+      }
+    }
+    return changed;
   }
 
   private async shouldManualSyncPullBeforeFullVaultScan(): Promise<boolean> {
@@ -2070,7 +2123,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
   }
 
-  private async readLocalFileSnapshot(path: string) {
+  private async readLocalFileInfo(path: string): Promise<LocalFileInfo | undefined> {
     const normalizedPath = normalizePath(path);
     if (!this.shouldSyncPath(normalizedPath)) {
       return undefined;
@@ -2078,16 +2131,58 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
     const file = this.app.vault.getAbstractFileByPath(normalizedPath);
     if (file instanceof TFile) {
+      return {
+        path: file.path,
+        ctime: file.stat.ctime,
+        mtime: file.stat.mtime,
+        size: file.stat.size,
+        contentType: this.shouldReadFileAsText(file) ? "text" : "binary"
+      };
+    }
+
+    const adapter = this.app.vault.adapter as VaultListAdapter;
+    if (typeof adapter.exists === "function" && !(await adapter.exists(normalizedPath))) {
+      return undefined;
+    }
+    const stat = await adapter.stat?.(normalizedPath);
+    if (!stat) {
+      return undefined;
+    }
+    return {
+      path: normalizedPath,
+      ctime: stat.ctime,
+      mtime: stat.mtime,
+      size: stat.size,
+      contentType: this.shouldReadPathAsText(normalizedPath) ? "text" : "binary"
+    };
+  }
+
+  private async readLocalFileSnapshot(path: string) {
+    const normalizedPath = normalizePath(path);
+    if (!this.shouldSyncPath(normalizedPath)) {
+      return undefined;
+    }
+
+    const info = await this.readLocalFileInfo(normalizedPath);
+    const cached = info ? this.getCachedLocalSnapshot(info) : undefined;
+    if (cached) {
+      return cached;
+    }
+
+    const file = this.app.vault.getAbstractFileByPath(normalizedPath);
+    if (file instanceof TFile) {
       const content = this.shouldReadFileAsText(file)
         ? await this.app.vault.read(file)
         : await this.app.vault.readBinary(file);
-      return {
+      const snapshot = {
         path: file.path,
         content,
         ctime: file.stat.ctime,
         mtime: file.stat.mtime,
         size: file.stat.size
       };
+      this.rememberLocalSnapshot(snapshot);
+      return snapshot;
     }
 
     const adapter = this.app.vault.adapter as VaultListAdapter;
@@ -2103,13 +2198,87 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       ? await adapter.read(normalizedPath)
       : await adapter.readBinary(normalizedPath);
     const fallbackTime = Date.now();
-    return {
+    const snapshot = {
       path: normalizedPath,
       content,
       ctime: stat?.ctime ?? stat?.mtime ?? fallbackTime,
       mtime: stat?.mtime ?? stat?.ctime ?? fallbackTime,
       size: stat?.size ?? (typeof content === "string" ? new TextEncoder().encode(content).byteLength : content.byteLength)
     };
+    this.rememberLocalSnapshot(snapshot);
+    return snapshot;
+  }
+
+  private localSnapshotCacheKey(info: Pick<LocalFileInfo, "contentType" | "size" | "mtime">): string {
+    return `${info.contentType}:${info.size}:${Math.trunc(info.mtime)}`;
+  }
+
+  private getCachedLocalSnapshot(info: LocalFileInfo): LocalFileSnapshot | undefined {
+    const normalizedPath = normalizePath(info.path);
+    const entry = this.localSnapshotCache.get(normalizedPath);
+    if (!entry || entry.cacheKey !== this.localSnapshotCacheKey(info)) {
+      return undefined;
+    }
+    entry.usedAt = Date.now();
+    return entry.snapshot;
+  }
+
+  private rememberLocalSnapshot(snapshot: LocalFileSnapshot): void {
+    const bytes = Math.max(0, snapshot.size);
+    if (bytes > SNAPSHOT_CACHE_MAX_FILE_BYTES) {
+      this.forgetLocalSnapshot(snapshot.path);
+      return;
+    }
+
+    const normalizedPath = normalizePath(snapshot.path);
+    const contentType = typeof snapshot.content === "string" ? "text" : "binary";
+    const cacheKey = this.localSnapshotCacheKey({
+      contentType,
+      size: snapshot.size,
+      mtime: snapshot.mtime
+    });
+    const existing = this.localSnapshotCache.get(normalizedPath);
+    if (existing) {
+      this.localSnapshotCacheBytes -= existing.bytes;
+    }
+    this.localSnapshotCache.set(normalizedPath, {
+      snapshot,
+      cacheKey,
+      bytes,
+      usedAt: Date.now()
+    });
+    this.localSnapshotCacheBytes += bytes;
+    this.trimLocalSnapshotCache();
+  }
+
+  private trimLocalSnapshotCache(): void {
+    while (
+      this.localSnapshotCache.size > SNAPSHOT_CACHE_MAX_ENTRIES ||
+      this.localSnapshotCacheBytes > SNAPSHOT_CACHE_MAX_BYTES
+    ) {
+      const oldest = [...this.localSnapshotCache.entries()]
+        .sort((left, right) => left[1].usedAt - right[1].usedAt)[0];
+      if (!oldest) {
+        return;
+      }
+      this.localSnapshotCache.delete(oldest[0]);
+      this.localSnapshotCacheBytes -= oldest[1].bytes;
+    }
+  }
+
+  private forgetLocalSnapshot(path: string): void {
+    const normalizedPath = normalizePath(path);
+    const existing = this.localSnapshotCache.get(normalizedPath);
+    if (!existing) {
+      return;
+    }
+    this.localSnapshotCache.delete(normalizedPath);
+    this.localSnapshotCacheBytes -= existing.bytes;
+  }
+
+  private clearLocalSnapshotCache(): void {
+    this.localSnapshotCache.clear();
+    this.localSnapshotCacheBytes = 0;
   }
 
   private shouldReadFileAsText(file: TFile): boolean {

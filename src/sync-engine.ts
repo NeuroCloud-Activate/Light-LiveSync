@@ -148,6 +148,14 @@ type PreparedPush = {
   chunkDocsBuilt: number;
 };
 
+export type LocalFileInfo = {
+  path: string;
+  ctime: number;
+  mtime: number;
+  size: number;
+  contentType: "text" | "binary";
+};
+
 type ReadySyncSettings = {
   ok: true;
   settings: LightweightLiveSyncSettings;
@@ -208,6 +216,10 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function localSnapshotContentType(snapshot: LocalFileSnapshot): LocalFileInfo["contentType"] {
+  return typeof snapshot.content === "string" ? "text" : "binary";
+}
+
 async function localSnapshotFingerprint(snapshot: LocalFileSnapshot): Promise<string> {
   const bytes = typeof snapshot.content === "string"
     ? new TextEncoder().encode(snapshot.content)
@@ -216,8 +228,67 @@ async function localSnapshotFingerprint(snapshot: LocalFileSnapshot): Promise<st
     "SHA-256",
     bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
   );
-  const type = typeof snapshot.content === "string" ? "text" : "binary";
-  return `${type}:${snapshot.size}:${bytesToHex(new Uint8Array(digest))}`;
+  return `v2:${localSnapshotContentType(snapshot)}:${snapshot.size}:${Math.trunc(snapshot.mtime)}:${bytesToHex(new Uint8Array(digest))}`;
+}
+
+type ParsedLocalFingerprint =
+  | {
+      version: "v2";
+      contentType: LocalFileInfo["contentType"];
+      size: number;
+      mtime: number;
+      hash: string;
+    }
+  | {
+      version: "legacy";
+      contentType: LocalFileInfo["contentType"];
+      size: number;
+      hash: string;
+    };
+
+function parseLocalPushFingerprint(value: string | undefined): ParsedLocalFingerprint | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parts = value.split(":");
+  if (parts[0] === "v2" && parts.length === 5) {
+    const contentType = parts[1] === "binary" ? "binary" : parts[1] === "text" ? "text" : undefined;
+    const size = Number(parts[2]);
+    const mtime = Number(parts[3]);
+    const hash = parts[4];
+    if (contentType && Number.isFinite(size) && Number.isFinite(mtime) && hash) {
+      return { version: "v2", contentType, size, mtime, hash };
+    }
+  }
+  if ((parts[0] === "text" || parts[0] === "binary") && parts.length === 3) {
+    const size = Number(parts[1]);
+    const hash = parts[2];
+    if (Number.isFinite(size) && hash) {
+      return { version: "legacy", contentType: parts[0], size, hash };
+    }
+  }
+  return undefined;
+}
+
+export function localPushFingerprintMatchesFileInfo(fingerprint: string | undefined, info: LocalFileInfo | undefined): boolean {
+  const parsed = parseLocalPushFingerprint(fingerprint);
+  if (!parsed || parsed.version !== "v2" || !info) {
+    return false;
+  }
+  return parsed.contentType === info.contentType &&
+    parsed.size === info.size &&
+    parsed.mtime === Math.trunc(info.mtime);
+}
+
+function fingerprintMatchesSnapshot(previous: string | undefined, next: string): boolean {
+  const parsedPrevious = parseLocalPushFingerprint(previous);
+  const parsedNext = parseLocalPushFingerprint(next);
+  if (!parsedPrevious || !parsedNext) {
+    return previous === next;
+  }
+  return parsedPrevious.contentType === parsedNext.contentType &&
+    parsedPrevious.size === parsedNext.size &&
+    parsedPrevious.hash === parsedNext.hash;
 }
 
 export type SyncEngineHost = {
@@ -226,6 +297,7 @@ export type SyncEngineHost = {
   updateLocalQueue(summary: LocalStoreSummary): Promise<void>;
   queueCurrentVaultForSync?(): Promise<LocalStoreSummary | undefined>;
   getLocalStore(databaseName: string): LocalDocumentStore;
+  readLocalFileInfo?(path: string): Promise<LocalFileInfo | undefined>;
   readLocalFileSnapshot(path: string): Promise<LocalFileSnapshot | undefined>;
   buildLocalPushBundle(snapshot: LocalFileSnapshot, options: LiveSyncBuildOptions): Promise<LiveSyncPushBundle>;
   applyPulledChanges(databaseName: string, client?: SyncRemoteClient): Promise<AutoApplyOutcome>;
@@ -650,6 +722,27 @@ export class LightweightSyncEngine {
     prepared: PreparedPush[]
   ): Promise<PushBatchOutcome> {
     try {
+      const previousFingerprint = await localStore.getLocalPushFingerprint(path);
+      const fileInfo = await this.host.readLocalFileInfo?.(path);
+      if (localPushFingerprintMatchesFileInfo(previousFingerprint, fileInfo)) {
+        await localStore.markLocalPushSucceeded([path]);
+        return {
+          pushed: 0,
+          deleted: 0,
+          skipped: 1,
+          failed: 0,
+          remoteDocsWritten: 0,
+          remoteDocsReused: 0,
+          remoteDocsConflicts: 0,
+          localBytesRead: 0,
+          chunkDocsBuilt: 0,
+          versionsSaved: 0,
+          versionsSkipped: 0,
+          versionsPruned: 0,
+          versionsFailed: 0
+        };
+      }
+
       const snapshot = await this.host.readLocalFileSnapshot(path);
       if (!snapshot) {
         await localStore.markLocalPushSucceeded([path]);
@@ -672,8 +765,11 @@ export class LightweightSyncEngine {
       }
 
       const fingerprint = await localSnapshotFingerprint(snapshot);
-      if (fingerprint === await localStore.getLocalPushFingerprint(path)) {
+      if (fingerprintMatchesSnapshot(previousFingerprint, fingerprint)) {
         await localStore.markLocalPushSucceeded([path]);
+        if (fingerprint !== previousFingerprint) {
+          await localStore.setLocalPushFingerprint(path, fingerprint);
+        }
         return {
           pushed: 0,
           deleted: 0,
@@ -887,6 +983,27 @@ export class LightweightSyncEngine {
         };
       }
 
+      const previousFingerprint = await localStore.getLocalPushFingerprint(path);
+      const fileInfo = await this.host.readLocalFileInfo?.(path);
+      if (localPushFingerprintMatchesFileInfo(previousFingerprint, fileInfo)) {
+        await localStore.markLocalPushSucceeded([path]);
+        return {
+          pushed: 0,
+          deleted: 0,
+          skipped: 1,
+          failed: 0,
+          remoteDocsWritten: 0,
+          remoteDocsReused: 0,
+          remoteDocsConflicts: 0,
+          localBytesRead: 0,
+          chunkDocsBuilt: 0,
+          versionsSaved: 0,
+          versionsSkipped: 0,
+          versionsPruned: 0,
+          versionsFailed: 0
+        };
+      }
+
       const snapshot = await this.host.readLocalFileSnapshot(path);
       if (!snapshot) {
         await localStore.markLocalPushSucceeded([path]);
@@ -909,8 +1026,11 @@ export class LightweightSyncEngine {
       }
 
       const fingerprint = await localSnapshotFingerprint(snapshot);
-      if (fingerprint === await localStore.getLocalPushFingerprint(path)) {
+      if (fingerprintMatchesSnapshot(previousFingerprint, fingerprint)) {
         await localStore.markLocalPushSucceeded([path]);
+        if (fingerprint !== previousFingerprint) {
+          await localStore.setLocalPushFingerprint(path, fingerprint);
+        }
         return {
           pushed: 0,
           deleted: 0,

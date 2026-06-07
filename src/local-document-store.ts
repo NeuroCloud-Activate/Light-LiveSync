@@ -431,6 +431,38 @@ export class LocalDocumentStore {
     return fingerprint;
   }
 
+  async getLocalPushFingerprints(paths: string[]): Promise<Map<string, string>> {
+    const uniquePaths = [...new Set(paths.filter(Boolean))];
+    const result = new Map<string, string>();
+    const missing: string[] = [];
+    for (const path of uniquePaths) {
+      const cached = this.fingerprintCache.get(path);
+      if (cached !== undefined) {
+        result.set(path, cached);
+      } else {
+        missing.push(path);
+      }
+    }
+    if (missing.length === 0) {
+      return result;
+    }
+
+    const db = await this.requireDb();
+    const transaction = db.transaction(PUSH_FINGERPRINT_STORE, "readonly");
+    const done = txDone(transaction);
+    const store = transaction.objectStore(PUSH_FINGERPRINT_STORE);
+    const loaded = await Promise.all(
+      missing.map(async (path) => [path, await dbRequest<LocalPushFingerprint | undefined>(store.get(path))] as const)
+    );
+    await done;
+    for (const [path, existing] of loaded) {
+      const fingerprint = existing?.fingerprint ?? "";
+      this.fingerprintCache.set(path, fingerprint);
+      result.set(path, fingerprint);
+    }
+    return result;
+  }
+
   async setLocalPushFingerprint(path: string, fingerprint: string): Promise<void> {
     this.fingerprintCache.set(path, fingerprint);
     const db = await this.requireDb();

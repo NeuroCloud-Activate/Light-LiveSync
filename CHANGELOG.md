@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.40
+
+- Requests startup sync immediately after the vault layout is ready, then runs the automatic runtime check after sync has had a chance to start.
+- Uses local file metadata plus the local sync fingerprint index to skip unchanged files before they are queued during full-vault scans.
+- Adds a small RAM snapshot cache so files that do need verification or upload are not reread repeatedly during the same sync pass.
+- Coalesces queue/progress state saves during active sync, reducing plugin data writes that can briefly compete with the app UI.
+
 ## 0.1.39
 
 - Reduces default local-change batching from 60 seconds to 10 seconds and migrates older default installs to the faster setting.
