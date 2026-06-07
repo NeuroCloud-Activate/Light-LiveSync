@@ -13,6 +13,7 @@ export type LiveVaultApplyResult = {
   failed: number;
   appliedIds: string[];
   skippedIds: string[];
+  changedPaths: string[];
   waitingReasons: string[];
   skippedReasons: string[];
   failedReasons: string[];
@@ -85,6 +86,12 @@ function isProtectedTarget(path: string, configDir: string): boolean {
 function recordReason(list: string[], path: string, reason: string): void {
   if (list.length < 10) {
     list.push(`${path}: ${reason}`);
+  }
+}
+
+function recordChangedPath(result: MutableLiveVaultApplyResult, path: string): void {
+  if (!result.changedPaths.includes(path)) {
+    result.changedPaths.push(path);
   }
 }
 
@@ -259,10 +266,12 @@ async function applyDeletedPreview(
     await backupExistingContent(vault, targetPath, result.conflictFolder, preview.contentType === "binary");
     await vault.delete(existing);
     result.backedUp++;
+    recordChangedPath(result, targetPath);
   } else if (await vault.adapter.exists(targetPath)) {
     await backupExistingContent(vault, targetPath, result.conflictFolder, preview.contentType === "binary");
     await vault.adapter.remove(targetPath);
     result.backedUp++;
+    recordChangedPath(result, targetPath);
   }
   result.deleted++;
   result.appliedIds.push(preview.id);
@@ -297,6 +306,7 @@ async function applyReadyPreview(
         await backupExistingContent(vault, targetPath, result.conflictFolder, false);
         await writeContent(vault, targetPath, merged);
         result.backedUp++;
+        recordChangedPath(result, targetPath);
       }
       if (jsonSettingsMerge?.preservedLocalValues && !result.preservedLocalSettingsPaths.includes(targetPath)) {
         result.preservedLocalSettingsPaths.push(targetPath);
@@ -310,6 +320,7 @@ async function applyReadyPreview(
   }
 
   await writeContent(vault, targetPath, preview.content);
+  recordChangedPath(result, targetPath);
   result.applied++;
   result.appliedIds.push(preview.id);
 }
@@ -371,6 +382,7 @@ export async function applyReadyPreviewsToLiveVault(
     failed: 0,
     appliedIds: [],
     skippedIds: [],
+    changedPaths: [],
     waitingReasons: [],
     skippedReasons: [],
     failedReasons: [],

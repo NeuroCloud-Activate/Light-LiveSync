@@ -3,6 +3,7 @@ import { decryptCredentialPayload, encryptCredentialPayload } from "./credential
 import { DocumentReconstructor, type ReconstructionBatchSummary } from "./document-reconstructor";
 import { applyReadyPreviewsToLiveVault, type LiveVaultApplyResult } from "./live-vault-applier";
 import { exportReadyPreviews } from "./preview-exporter";
+import { planObsidianConfigRefresh } from "./obsidian-config-refresh";
 import { ServerCredentialsModal } from "./server-credentials-modal";
 import { applyReadyPreviewsToStaging, type StagingApplyResult } from "./staging-applier";
 import { DirectCouchDbSetupModal } from "./direct-setup-modal";
@@ -107,6 +108,18 @@ type VaultListAdapter = {
   stat?(path: string): Promise<{ ctime: number; mtime: number; size: number } | null>;
   read?(path: string): Promise<string>;
   readBinary?(path: string): Promise<ArrayBuffer>;
+};
+
+type ObsidianPluginManager = {
+  enabledPlugins?: Set<string> | string[];
+  plugins?: Record<string, unknown>;
+  manifests?: Record<string, unknown>;
+  loadManifests?(): Promise<void> | void;
+  reloadPlugin?(id: string): Promise<void> | void;
+  unloadPlugin?(id: string): Promise<void> | void;
+  loadPlugin?(id: string): Promise<void> | void;
+  enablePlugin?(id: string): Promise<void> | void;
+  disablePlugin?(id: string): Promise<void> | void;
 };
 
 function hasLiveApplyActivity(result: LiveVaultApplyResult): boolean {
@@ -1469,8 +1482,147 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       );
     }
     await this.updateLocalLiveApply(result);
+    await this.refreshObsidianAfterSyncedConfigChanges(result.changedPaths);
     await this.updateLocalQueue(await context.store.getSummary());
     return result;
+  }
+
+  private async refreshObsidianAfterSyncedConfigChanges(changedPaths: string[]): Promise<void> {
+    const plan = planObsidianConfigRefresh(changedPaths, this.app.vault.configDir, this.manifest.id);
+    const hasWork =
+      plan.communityPluginsChanged ||
+      plan.appSettingsChanged.length > 0 ||
+      plan.pluginsToReload.length > 0 ||
+      plan.ownPluginChanged;
+    if (!hasWork) {
+      return;
+    }
+
+    const pluginManager = (this.app as unknown as { plugins?: ObsidianPluginManager }).plugins;
+    if (plan.appSettingsChanged.length > 0) {
+      this.notifyObsidianSettingsChanged(plan.appSettingsChanged);
+    }
+    if (plan.communityPluginsChanged) {
+      await this.refreshCommunityPluginEnablement(pluginManager);
+    }
+    if (plan.pluginsToReload.length > 0) {
+      await this.reloadSyncedPlugins(pluginManager, plan.pluginsToReload);
+    }
+    if (plan.ownPluginChanged) {
+      this.log("Synced Light-LiveSync plugin files changed. Reload the app or disable/enable Light-LiveSync to use the new plugin bundle.");
+    }
+  }
+
+  private notifyObsidianSettingsChanged(paths: string[]): void {
+    const workspace = this.app.workspace as unknown as { trigger?: (name: string) => void };
+    workspace.trigger?.("layout-change");
+    this.log(`Synced Obsidian settings updated: ${paths.join(", ")}.`);
+  }
+
+  private async refreshCommunityPluginEnablement(pluginManager: ObsidianPluginManager | undefined): Promise<void> {
+    const desired = await this.readCommunityPluginList();
+    if (!desired || !pluginManager) {
+      this.log("Synced community plugin list changed. Obsidian plugin manager refresh was not available; reload the app to apply plugin enablement changes.");
+      return;
+    }
+
+    await pluginManager.loadManifests?.();
+    const enabled = this.enabledCommunityPlugins(pluginManager);
+    const toEnable = [...desired].filter((id) => id !== this.manifest.id && !enabled.has(id)).sort();
+    const toDisable = [...enabled].filter((id) => id !== this.manifest.id && !desired.has(id)).sort();
+
+    for (const id of toDisable) {
+      if (typeof pluginManager.disablePlugin !== "function") {
+        this.log(`Community plugin ${id} should be disabled by synced settings, but Obsidian did not expose a disable action.`);
+        continue;
+      }
+      await pluginManager.disablePlugin(id);
+      await this.yieldToUi();
+    }
+
+    for (const id of toEnable) {
+      if (typeof pluginManager.enablePlugin !== "function") {
+        this.log(`Community plugin ${id} should be enabled by synced settings, but Obsidian did not expose an enable action.`);
+        continue;
+      }
+      await pluginManager.enablePlugin(id);
+      await this.yieldToUi();
+    }
+
+    this.log(
+      `Synced community plugin list refreshed. Enabled ${toEnable.length}, disabled ${toDisable.length}.`
+    );
+  }
+
+  private async readCommunityPluginList(): Promise<Set<string> | undefined> {
+    const adapter = this.app.vault.adapter as VaultListAdapter;
+    if (typeof adapter.read !== "function") {
+      return undefined;
+    }
+    try {
+      const raw = await adapter.read(`${normalizePath(this.app.vault.configDir)}/community-plugins.json`);
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) {
+        return undefined;
+      }
+      return new Set(parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0));
+    } catch (error) {
+      this.log(`Could not read synced community plugin list: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
+  }
+
+  private enabledCommunityPlugins(pluginManager: ObsidianPluginManager): Set<string> {
+    if (pluginManager.enabledPlugins instanceof Set) {
+      return new Set([...pluginManager.enabledPlugins].filter((id): id is string => typeof id === "string"));
+    }
+    if (Array.isArray(pluginManager.enabledPlugins)) {
+      return new Set(pluginManager.enabledPlugins.filter((id): id is string => typeof id === "string"));
+    }
+    return new Set(Object.keys(pluginManager.plugins ?? {}));
+  }
+
+  private async reloadSyncedPlugins(pluginManager: ObsidianPluginManager | undefined, pluginIds: string[]): Promise<void> {
+    if (!pluginManager) {
+      this.log(`Synced plugin settings changed for ${pluginIds.join(", ")}, but Obsidian plugin manager refresh was not available.`);
+      return;
+    }
+    await pluginManager.loadManifests?.();
+    const enabled = this.enabledCommunityPlugins(pluginManager);
+    let reloaded = 0;
+    for (const id of pluginIds) {
+      if (!enabled.has(id)) {
+        continue;
+      }
+      try {
+        await this.reloadOnePlugin(pluginManager, id);
+        reloaded++;
+        await this.yieldToUi();
+      } catch (error) {
+        this.log(`Could not reload synced plugin ${id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (reloaded > 0) {
+      this.log(`Reloaded ${reloaded} synced plugin${reloaded === 1 ? "" : "s"} after remote settings update.`);
+    }
+  }
+
+  private async reloadOnePlugin(pluginManager: ObsidianPluginManager, id: string): Promise<void> {
+    if (typeof pluginManager.reloadPlugin === "function") {
+      await pluginManager.reloadPlugin(id);
+      return;
+    }
+    if (typeof pluginManager.unloadPlugin === "function" && typeof pluginManager.loadPlugin === "function") {
+      await pluginManager.unloadPlugin(id);
+      await pluginManager.loadPlugin(id);
+      return;
+    }
+    if (typeof pluginManager.disablePlugin === "function" && typeof pluginManager.enablePlugin === "function") {
+      await pluginManager.disablePlugin(id);
+      await pluginManager.enablePlugin(id);
+      return;
+    }
+    throw new Error("No compatible Obsidian plugin reload action was available.");
   }
 
   private applyBatchLimit(): number {

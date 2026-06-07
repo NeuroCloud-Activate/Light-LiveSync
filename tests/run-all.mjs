@@ -11,6 +11,7 @@ const tsHarnesses = [
   "document-reconstructor-harness.mjs",
   "local-document-store-harness.mjs",
   "live-vault-applier-harness.mjs",
+  "obsidian-config-refresh-harness.mjs",
   "recovery-backups-harness.mjs",
   "runtime-capabilities-harness.mjs",
   "runtime-evidence-report-harness.mjs",

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.42
+
+- Refreshes Obsidian community plugin enablement after synced `community-plugins.json` changes are applied.
+- Reloads affected enabled community plugins after synced plugin manifests, bundles, or settings files change.
+- Tracks actual changed vault paths during remote apply, so refresh work only runs for config/plugin files that were really written or deleted.
+- Notifies the workspace when synced app-level JSON settings are applied, while keeping Light-LiveSync itself from self-reloading mid-sync.
+
 ## 0.1.41
 
 - Requests startup sync before the startup configuration scan, so app-open CouchDB catch-up begins immediately.

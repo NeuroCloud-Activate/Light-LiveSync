@@ -161,6 +161,7 @@ const configResult = await applyReadyPreviewsToLiveVault(
 
 assert.equal(configResult.applied, 1);
 assert.equal(configResult.skipped, 0);
+assert.deepEqual(configResult.changedPaths, [".obsidian/app.json"]);
 assert.equal(vault.files.get(".obsidian/app.json"), "{}");
 
 vault.files.set(".obsidian/plugins/other-plugin/data.json", "{\"old\":true}");
@@ -188,6 +189,7 @@ const adapterOnlyResult = await applyReadyPreviewsToLiveVault(
 assert.equal(adapterOnlyResult.applied, 0);
 assert.equal(adapterOnlyResult.merged, 1);
 assert.equal(adapterOnlyResult.failed, 0);
+assert.deepEqual(adapterOnlyResult.changedPaths, [".obsidian/plugins/other-plugin/data.json"]);
 assert.deepEqual(JSON.parse(vault.files.get(".obsidian/plugins/other-plugin/data.json")), { old: true, new: true });
 
 vault.files.set(".obsidian/plugins/ai-helper/data.json", JSON.stringify({
@@ -232,6 +234,7 @@ const protectedSettings = JSON.parse(vault.files.get(".obsidian/plugins/ai-helpe
 
 assert.equal(protectedSettingsResult.applied, 0);
 assert.equal(protectedSettingsResult.merged, 1);
+assert.deepEqual(protectedSettingsResult.changedPaths, [".obsidian/plugins/ai-helper/data.json"]);
 assert.deepEqual(protectedSettingsResult.preservedLocalSettingsPaths, [".obsidian/plugins/ai-helper/data.json"]);
 assert.equal(protectedSettings.apiKey, "local-api-key");
 assert.equal(protectedSettings.token, "local-token");
@@ -328,6 +331,7 @@ const skipAndWaitResult = await applyReadyPreviewsToLiveVault(
 assert.equal(skipAndWaitResult.skipped, 1);
 assert.deepEqual(skipAndWaitResult.skippedIds, ["doc-protected-root"]);
 assert.equal(skipAndWaitResult.waiting, 1);
+assert.deepEqual(skipAndWaitResult.changedPaths, []);
 assert.equal(skipAndWaitResult.waitingReasons.some((reason) => /Missing 1 of 2 chunks/.test(reason)), true);
 assert.equal(skipAndWaitResult.appliedIds.includes("doc-waiting"), false);
 
