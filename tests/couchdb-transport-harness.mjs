@@ -135,6 +135,85 @@ try {
   globalThis.fetch = originalSecurityFetch;
 }
 
+const originalInspectFetch = globalThis.fetch;
+const inspectRequests = [];
+globalThis.fetch = async (url, options) => {
+  inspectRequests.push({ url, method: options.method });
+  if (url === "http://example.invalid:5984") {
+    return new Response(JSON.stringify({ version: "3.3.0" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  if (url === "http://example.invalid:5984/transportcheck") {
+    return new Response(JSON.stringify({ db_name: "transportcheck", doc_count: 4, update_seq: "checkpoint-123" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  if (url === "http://example.invalid:5984/transportcheck/_local/obsidian_livesync_sync_parameters") {
+    return new Response(JSON.stringify({ _id: "_local/obsidian_livesync_sync_parameters", type: "sync-parameters", pbkdf2salt: "salt" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  if (url === "http://example.invalid:5984/transportcheck/_local/obsydian_livesync_milestone") {
+    return new Response(JSON.stringify({ error: "not_found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  if (url === "http://example.invalid:5984/transportcheck/_changes?include_docs=true&limit=50&descending=true") {
+    return new Response(JSON.stringify({
+      results: [
+        { id: "notes/example.md", seq: "checkpoint-123", doc: { _id: "notes/example.md", type: "plain", path: "notes/example.md" } }
+      ]
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  if (url === "http://example.invalid:5984/transportcheck/_changes?include_docs=true&limit=37&since=checkpoint-123") {
+    return new Response(JSON.stringify({
+      last_seq: "checkpoint-124",
+      results: [
+        { id: "notes/changed.md", seq: "checkpoint-124", doc: { _id: "notes/changed.md", type: "plain", path: "notes/changed.md" } }
+      ]
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  throw new Error(`Unexpected request ${options.method} ${url}`);
+};
+
+let metadataOnlyInspection;
+let sampledInspection;
+let checkpointPull;
+try {
+  const client = createClient(false);
+  metadataOnlyInspection = await client.inspect();
+  sampledInspection = await client.inspect({ includeRecentChangesSample: true });
+  checkpointPull = await client.getChangesSince("checkpoint-123", 37);
+} finally {
+  globalThis.fetch = originalInspectFetch;
+}
+
+assert.equal(metadataOnlyInspection.recentChangesSampled, false);
+assert.equal(metadataOnlyInspection.sample.total, 0);
+assert.equal(sampledInspection.recentChangesSampled, true);
+assert.equal(sampledInspection.sample.notes, 1);
+assert.equal(checkpointPull.lastSeq, "checkpoint-124");
+assert.equal(checkpointPull.changes.length, 1);
+assert.equal(
+  inspectRequests.filter((request) => request.url.includes("_changes?include_docs=true&limit=50&descending=true")).length,
+  1
+);
+assert.equal(
+  inspectRequests.filter((request) => request.url.includes("_changes?include_docs=true&limit=37&since=checkpoint-123")).length,
+  1
+);
+
 console.log(JSON.stringify({
   ok: true,
   defaultFetchTransport: fetchCalls === 1,
@@ -142,5 +221,7 @@ console.log(JSON.stringify({
   timeoutGuidance: true,
   unauthorizedGuidance: true,
   shortenedTimeouts,
-  databaseSecurityRequests: securityRequests.length
+  databaseSecurityRequests: securityRequests.length,
+  metadataOnlyInspectSkipsRecentChanges: !metadataOnlyInspection.recentChangesSampled,
+  checkpointPullUsesSince: checkpointPull.lastSeq === "checkpoint-124"
 }, null, 2));

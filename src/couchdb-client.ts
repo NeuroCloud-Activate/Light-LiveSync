@@ -31,6 +31,7 @@ export type RemoteInspection = {
   syncParametersPresent: boolean;
   syncParameterSalt: string;
   milestonePresent: boolean;
+  recentChangesSampled: boolean;
   sample: {
     total: number;
     notes: number;
@@ -44,6 +45,10 @@ export type RemoteInspection = {
 export type PullRemoteChangesResult = {
   changes: CouchDbChange[];
   lastSeq: string;
+};
+
+export type RemoteInspectionOptions = {
+  includeRecentChangesSample?: boolean;
 };
 
 export type SyncParameters = {
@@ -139,6 +144,17 @@ const SYSTEM_TYPES = new Set<string>([
 const COUCHDB_REQUEST_TIMEOUT_MS = 20_000;
 const MAX_BULK_DOCS_PER_REQUEST = 100;
 const MAX_BULK_DOCS_BODY_BYTES = 768 * 1024;
+
+function emptyChangeSample(): RemoteInspection["sample"] {
+  return {
+    total: 0,
+    notes: 0,
+    chunks: 0,
+    system: 0,
+    deleted: 0,
+    unknown: 0
+  };
+}
 
 function sequenceToString(value: unknown, fallback = "0"): string {
   if (typeof value === "string" || typeof value === "number") {
@@ -270,16 +286,17 @@ export class CouchDbClient {
     this.settings = settings;
   }
 
-  async inspect(): Promise<RemoteInspection> {
+  async inspect(options: RemoteInspectionOptions = {}): Promise<RemoteInspection> {
+    const includeRecentChangesSample = options.includeRecentChangesSample === true;
     const [serverInfo, dbInfo, syncParameters, milestone, changes] = await Promise.all([
       this.getServerInfo(),
       this.getDatabaseInfo(),
       this.getOptionalDocument(DOCID_SYNC_PARAMETERS),
       this.getOptionalDocument(MILESTONE_DOCID),
-      this.getRecentChanges(50)
+      includeRecentChangesSample ? this.getRecentChanges(50) : Promise.resolve([])
     ]);
 
-    const sample = this.summariseChanges(changes);
+    const sample = includeRecentChangesSample ? this.summariseChanges(changes) : emptyChangeSample();
     return {
       serverVersion: serverInfo.version ?? "unknown",
       databaseName: dbInfo.db_name,
@@ -288,6 +305,7 @@ export class CouchDbClient {
       syncParametersPresent: !!syncParameters,
       syncParameterSalt: typeof syncParameters?.pbkdf2salt === "string" ? syncParameters.pbkdf2salt : "",
       milestonePresent: !!milestone,
+      recentChangesSampled: includeRecentChangesSample,
       sample
     };
   }

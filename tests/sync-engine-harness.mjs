@@ -235,10 +235,12 @@ const firstUploadStore = new MemoryStore([
 ]);
 let firstUploadPulled = false;
 let firstUploadInspectCount = 0;
+const firstUploadInspectSamples = [];
 const firstUploadClient = {
   ...fakeClient,
-  async inspect() {
+  async inspect(options = {}) {
     firstUploadInspectCount += 1;
+    firstUploadInspectSamples.push(options.includeRecentChangesSample === true);
     return {
       serverVersion: "test",
       databaseName: "syncengine",
@@ -288,6 +290,7 @@ const firstUploadEngine = new LightweightSyncEngine({
 const firstUploadOutcome = await firstUploadEngine.sync("manual");
 assert.equal(firstUploadOutcome.ok, true);
 assert.equal(firstUploadPulled, false);
+assert.deepEqual(firstUploadInspectSamples, [true, false]);
 assert.equal(firstUploadStore.lastRemoteSeq, "3");
 assert.equal((await firstUploadStore.getSummary()).pendingApply, 0);
 assert.equal(firstUploadOutcome.metrics.pushedFiles, 1);
@@ -297,10 +300,12 @@ const automaticFirstStore = new MemoryStore([]);
 let automaticFirstQueued = false;
 let automaticFirstPulled = false;
 let automaticFirstInspectCount = 0;
+const automaticFirstInspectSamples = [];
 const automaticFirstClient = {
   ...fakeClient,
-  async inspect() {
+  async inspect(options = {}) {
     automaticFirstInspectCount += 1;
+    automaticFirstInspectSamples.push(options.includeRecentChangesSample === true);
     return {
       serverVersion: "test",
       databaseName: "syncengine",
@@ -355,6 +360,7 @@ const automaticFirstOutcome = await automaticFirstEngine.sync("setup-import");
 assert.equal(automaticFirstQueued, true);
 assert.equal(automaticFirstOutcome.ok, true);
 assert.equal(automaticFirstPulled, false);
+assert.deepEqual(automaticFirstInspectSamples, [true, false]);
 assert.equal(automaticFirstStore.lastRemoteSeq, "3");
 assert.equal((await automaticFirstStore.getSummary()).pendingApply, 0);
 assert.equal(automaticFirstOutcome.metrics.pushedFiles, 1);
@@ -951,6 +957,7 @@ assert.equal(quietPeriodicOutcome.metrics.pulledChanges, 0);
 
 const missingSaltStore = new MemoryStore([]);
 let missingSaltInspectCalls = 0;
+let missingSaltInspectionSampled = false;
 const missingSaltEngine = new LightweightSyncEngine({
   getSettings: () => ({
     ...settings,
@@ -969,8 +976,9 @@ const missingSaltEngine = new LightweightSyncEngine({
   applyPulledChanges: async () => ({ applied: 0, deleted: 0, skipped: 0, waiting: 0, merged: 0, backedUp: 0, conflicted: 0, failed: 0 }),
   createRemoteClient: () => ({
     ...fakeClient,
-    async inspect() {
+    async inspect(options = {}) {
       missingSaltInspectCalls += 1;
+      missingSaltInspectionSampled = options.includeRecentChangesSample === true;
       return fakeClient.inspect();
     },
     async getChangesSince() {
@@ -982,6 +990,7 @@ const missingSaltEngine = new LightweightSyncEngine({
 const missingSaltOutcome = await missingSaltEngine.sync("periodic");
 assert.equal(missingSaltOutcome.ok, true);
 assert.equal(missingSaltInspectCalls, 1);
+assert.equal(missingSaltInspectionSampled, false);
 
 const startupCatchUpStore = new MemoryStore([]);
 startupCatchUpStore.lastRemoteSeq = "9039-g1AAAAC";

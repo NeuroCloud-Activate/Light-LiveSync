@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.43
+
+- Keeps normal CouchDB inspections metadata-only, avoiding the extra recent-document sample download during routine sync checks.
+- Continues to pull remote updates through the saved CouchDB checkpoint, so downloads ask only for documents changed since the last successful pull.
+- Keeps the first-sync empty-remote guard intact by sampling recent changes only when no local checkpoint exists and the plugin needs that decision.
+- Preserves existing remote sample counters in settings when an inspection intentionally skips recent-change sampling.
+
 ## 0.1.42
 
 - Refreshes Obsidian community plugin enablement after synced `community-plugins.json` changes are applied.

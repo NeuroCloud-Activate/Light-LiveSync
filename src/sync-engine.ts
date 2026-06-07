@@ -336,7 +336,7 @@ export class LightweightSyncEngine {
     const client = this.createRemoteClient(settings);
     await client.ensureDatabase();
     const result = await client.ensureSyncParameters();
-    const inspection = await client.inspect();
+    const inspection = await client.inspect({ includeRecentChangesSample: false });
     await this.host.updateRemoteInspection(inspection);
     return {
       ok: true,
@@ -445,7 +445,9 @@ export class LightweightSyncEngine {
 
     const inspectStartedAt = Date.now();
     this.host.reportProgress?.({ phase: "inspect-start", reason });
-    const inspection = await client.inspect();
+    const inspection = await client.inspect({
+      includeRecentChangesSample: this.shouldSampleRemoteChangesForInspection(reason, startingSummary)
+    });
     metrics.inspectMs = elapsedMs(inspectStartedAt);
     await this.host.updateRemoteInspection(inspection);
     this.host.reportProgress?.({
@@ -454,6 +456,16 @@ export class LightweightSyncEngine {
       documentCount: inspection.documentCount
     });
     return inspection;
+  }
+
+  private shouldSampleRemoteChangesForInspection(reason: SyncReason, startingSummary: LocalStoreSummary): boolean {
+    if (startingSummary.lastRemoteSeq !== "0") {
+      return false;
+    }
+    if (startingSummary.pendingPush > 0) {
+      return true;
+    }
+    return AUTOMATIC_FULL_VAULT_SCAN_REASONS.has(reason) && !!this.host.queueCurrentVaultForSync;
   }
 
   private canUseLightweightPull(
@@ -574,6 +586,7 @@ export class LightweightSyncEngine {
 
   private remoteHasNoCurrentVaultDocuments(inspection: RemoteInspection): boolean {
     return (
+      inspection.recentChangesSampled !== false &&
       inspection.sample.notes === 0 &&
       inspection.sample.chunks === 0 &&
       inspection.sample.unknown === 0
@@ -952,7 +965,7 @@ export class LightweightSyncEngine {
       return false;
     }
 
-    const afterPush = await client.inspect();
+    const afterPush = await client.inspect({ includeRecentChangesSample: false });
     await this.host.updateRemoteInspection(afterPush);
     await localStore.setCheckpoint(afterPush.updateSequence);
     this.host.log("First upload completed against an empty remote vault; skipped pulling this device's own uploaded documents.");

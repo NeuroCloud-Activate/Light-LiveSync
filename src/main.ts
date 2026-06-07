@@ -1857,10 +1857,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       current.updateSequence === inspection.updateSequence &&
       current.syncParametersPresent === inspection.syncParametersPresent &&
       current.milestonePresent === inspection.milestonePresent &&
-      current.sampledNotes === inspection.sample.notes &&
-      current.sampledChunks === inspection.sample.chunks &&
-      current.sampledDeleted === inspection.sample.deleted &&
-      current.sampledUnknown === inspection.sample.unknown &&
+      (!inspection.recentChangesSampled || current.sampledNotes === inspection.sample.notes) &&
+      (!inspection.recentChangesSampled || current.sampledChunks === inspection.sample.chunks) &&
+      (!inspection.recentChangesSampled || current.sampledDeleted === inspection.sample.deleted) &&
+      (!inspection.recentChangesSampled || current.sampledUnknown === inspection.sample.unknown) &&
       current.syncParameterSalt === inspection.syncParameterSalt;
     if (unchanged) {
       return;
@@ -1872,10 +1872,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       updateSequence: inspection.updateSequence,
       syncParametersPresent: inspection.syncParametersPresent,
       milestonePresent: inspection.milestonePresent,
-      sampledNotes: inspection.sample.notes,
-      sampledChunks: inspection.sample.chunks,
-      sampledDeleted: inspection.sample.deleted,
-      sampledUnknown: inspection.sample.unknown,
+      sampledNotes: inspection.recentChangesSampled ? inspection.sample.notes : current.sampledNotes,
+      sampledChunks: inspection.recentChangesSampled ? inspection.sample.chunks : current.sampledChunks,
+      sampledDeleted: inspection.recentChangesSampled ? inspection.sample.deleted : current.sampledDeleted,
+      sampledUnknown: inspection.recentChangesSampled ? inspection.sample.unknown : current.sampledUnknown,
       syncParameterSalt: inspection.syncParameterSalt
     };
     this.settings = {
