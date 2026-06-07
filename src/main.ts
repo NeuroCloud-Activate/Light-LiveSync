@@ -213,10 +213,17 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
     this.app.workspace.onLayoutReady(() => {
       if (this.configuredAtLoad && this.settings.syncOnStart && this.canRunAutomaticSync()) {
-        void this.queueRecentlyChangedConfigForSync("Startup config scan").finally(() => {
-          this.log("Startup sync requested immediately.");
-          this.scheduler.request("startup", true);
-        });
+        this.log("Startup sync requested immediately.");
+        this.scheduler.request("startup", true);
+        void this.queueRecentlyChangedConfigForSync("Startup config scan")
+          .then((summary) => {
+            if ((summary?.pendingPush ?? 0) > 0) {
+              this.scheduler.request("vault-change", true);
+            }
+          })
+          .catch((error) => {
+            this.log(`Startup config scan skipped: ${error instanceof Error ? error.message : String(error)}`);
+          });
         window.setTimeout(() => {
           void this.runAutomaticRuntimeCheck();
         }, 2500);
@@ -1676,7 +1683,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.vaultChangeBatchTimer = window.setTimeout(() => {
       this.vaultChangeBatchTimer = undefined;
       this.vaultChangeBatchDueAt = 0;
-      this.scheduler.request("vault-change");
+      this.scheduler.request("vault-change", true);
     }, delayMs);
     this.registerInterval(this.vaultChangeBatchTimer);
     this.setStatus(delayMs > 0 ? `Batching vault changes for ${Math.ceil(delayMs / 1000)}s` : "Sync queued: vault-change");
@@ -1846,7 +1853,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     };
     this.setStatus("Syncing");
     this.log(`${friendlySyncReason(reason)} sync started.`);
-    void this.saveRuntimeDiagnostics();
+    this.scheduleRuntimeDiagnosticsSave(250);
   }
 
   private async markInterruptedSyncIfNeeded(): Promise<void> {

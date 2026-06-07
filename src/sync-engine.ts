@@ -405,8 +405,11 @@ export class LightweightSyncEngine {
       return this.syncOutcomeMessage(pushed, pulled, metrics);
     }
 
+    const summaryAfterPush = activeSummary.pendingPush > 0
+      ? await localStore.getSummary()
+      : activeSummary;
     const pullStartedAt = Date.now();
-    let pulled = await this.pullRemoteChanges(client, localStore, inspection?.updateSequence ?? activeSummary.lastRemoteSeq);
+    let pulled = await this.pullRemoteChanges(client, localStore, inspection?.updateSequence ?? activeSummary.lastRemoteSeq, summaryAfterPush);
     metrics.pullMs = elapsedMs(pullStartedAt);
     metrics.pulledChanges = pulled.pulledCount;
 
@@ -481,18 +484,26 @@ export class LightweightSyncEngine {
   private async pullRemoteChanges(
     client: SyncRemoteClient,
     localStore: LocalDocumentStore,
-    remoteEndSeq: string
+    remoteEndSeq: string,
+    knownSummary?: LocalStoreSummary
   ): Promise<PulledRemoteChanges> {
     const checkpoint = await localStore.getCheckpoint();
     this.host.reportProgress?.({ phase: "pull-start", since: checkpoint.lastRemoteSeq });
     const pullStartedAt = Date.now();
     const pulled = await client.getChangesSince(checkpoint.lastRemoteSeq, REMOTE_PULL_LIMIT);
-    let summary = await localStore.getSummary();
+    let summary = knownSummary ?? await localStore.getSummary();
     let pulledBytes = 0;
     for (let index = 0; index < pulled.changes.length; index += REMOTE_CACHE_BATCH_SIZE) {
       const batch = pulled.changes.slice(index, index + REMOTE_CACHE_BATCH_SIZE);
+      const isFinalBatch = index + batch.length >= pulled.changes.length;
       await this.host.yieldToUi?.();
-      summary = await localStore.cacheRemoteChanges(batch);
+      if (isFinalBatch) {
+        summary = await localStore.cacheRemoteChanges(batch);
+      } else if (typeof (localStore as { cacheRemoteChangesOnly?: (changes: Parameters<LocalDocumentStore["cacheRemoteChanges"]>[0]) => Promise<void> }).cacheRemoteChangesOnly === "function") {
+        await (localStore as { cacheRemoteChangesOnly(changes: Parameters<LocalDocumentStore["cacheRemoteChanges"]>[0]): Promise<void> }).cacheRemoteChangesOnly(batch);
+      } else {
+        summary = await localStore.cacheRemoteChanges(batch);
+      }
       pulledBytes += estimatedJsonBytes(batch);
       this.host.reportProgress?.({
         phase: "pull-batch",
@@ -505,7 +516,7 @@ export class LightweightSyncEngine {
     }
     if (pulled.lastSeq !== checkpoint.lastRemoteSeq) {
       await localStore.setCheckpoint(pulled.lastSeq);
-      summary = await localStore.getSummary();
+      summary = { ...summary, lastRemoteSeq: String(pulled.lastSeq) };
     }
     await this.host.updateLocalQueue(summary);
     this.host.reportProgress?.({

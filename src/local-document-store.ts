@@ -244,6 +244,15 @@ export class LocalDocumentStore {
   }
 
   async cacheRemoteChanges(changes: RemoteDocumentChange[]): Promise<LocalStoreSummary> {
+    await this.cacheRemoteChangesOnly(changes);
+    return this.getSummary();
+  }
+
+  async cacheRemoteChangesOnly(changes: RemoteDocumentChange[]): Promise<void> {
+    if (changes.length === 0) {
+      return;
+    }
+
     const db = await this.requireDb();
     const pulledAt = Date.now();
     const transaction = db.transaction([DOCUMENT_STORE, STATE_STORE], "readwrite");
@@ -263,7 +272,6 @@ export class LocalDocumentStore {
     }
 
     await done;
-    return this.getSummary();
   }
 
   async cacheRemoteDocuments(docs: LiveSyncDocument[], seq = ""): Promise<void> {

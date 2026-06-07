@@ -702,6 +702,15 @@ class PullBatchStore extends MemoryStore {
   constructor() {
     super([]);
     this.cacheBatchSizes = [];
+    this.cacheOnlyBatchSizes = [];
+  }
+
+  async cacheRemoteChangesOnly(changes) {
+    this.cacheOnlyBatchSizes.push(changes.length);
+    if (changes.length > 0) {
+      this.lastRemoteSeq = String(changes.at(-1).seq);
+      this.pendingApply += changes.length;
+    }
   }
 
   async cacheRemoteChanges(changes) {
@@ -753,7 +762,8 @@ const pullBatchEngine = new LightweightSyncEngine({
 });
 const pullBatchOutcome = await pullBatchEngine.sync("periodic");
 assert.equal(pullBatchOutcome.ok, true);
-assert.deepEqual(pullBatchStore.cacheBatchSizes, [50, 10]);
+assert.deepEqual(pullBatchStore.cacheOnlyBatchSizes, [50]);
+assert.deepEqual(pullBatchStore.cacheBatchSizes, [10]);
 assert.equal(pullBatchYields, 4);
 assert.equal(pullBatchOutcome.metrics.pulledChanges, 60);
 assert.equal((await pullBatchStore.getSummary()).pendingApply, 60);
@@ -895,6 +905,49 @@ assert.equal(lightweightPeriodicPullSince, "0");
 assert.equal((await lightweightPeriodicStore.getSummary()).lastRemoteSeq, "42");
 assert.equal(lightweightPeriodicOutcome.metrics.inspectMs, 0);
 assert.equal(lightweightPeriodicOutcome.metrics.pulledChanges, 0);
+
+const quietPeriodicStore = new MemoryStore([]);
+quietPeriodicStore.lastRemoteSeq = "quiet-checkpoint";
+let quietPeriodicSummaryReads = 0;
+const quietPeriodicEngine = new LightweightSyncEngine({
+  getSettings: () => ({
+    ...settings,
+    remoteState: {
+      ...settings.remoteState,
+      syncParameterSalt: "salted"
+    }
+  }),
+  updateRemoteInspection: async () => {},
+  updateLocalQueue: async () => {},
+  getLocalStore: () => quietPeriodicStore,
+  readLocalFileSnapshot: async () => undefined,
+  buildLocalPushBundle: async () => {
+    throw new Error("Quiet periodic sync should not build a local bundle.");
+  },
+  applyPulledChanges: async () => {
+    throw new Error("Quiet periodic sync should not apply files.");
+  },
+  createRemoteClient: () => ({
+    ...fakeClient,
+    async inspect() {
+      throw new Error("Quiet periodic sync should skip full inspection.");
+    },
+    async getChangesSince(since) {
+      assert.equal(since, "quiet-checkpoint");
+      return { lastSeq: "quiet-checkpoint", changes: [] };
+    }
+  }),
+  log: () => {}
+});
+const originalQuietSummary = quietPeriodicStore.getSummary.bind(quietPeriodicStore);
+quietPeriodicStore.getSummary = async () => {
+  quietPeriodicSummaryReads += 1;
+  return originalQuietSummary();
+};
+const quietPeriodicOutcome = await quietPeriodicEngine.sync("periodic");
+assert.equal(quietPeriodicOutcome.ok, true);
+assert.equal(quietPeriodicSummaryReads, 1);
+assert.equal(quietPeriodicOutcome.metrics.pulledChanges, 0);
 
 const missingSaltStore = new MemoryStore([]);
 let missingSaltInspectCalls = 0;
@@ -1049,6 +1102,7 @@ console.log(JSON.stringify({
   pullCacheBatchSizes: pullBatchStore.cacheBatchSizes,
   pullCacheYields: pullBatchYields,
   lightweightPeriodicSkippedInspect: lightweightPeriodicInspectCalls === 0,
+  quietPeriodicSummaryReads,
   missingSaltStillInspects: missingSaltInspectCalls === 1,
   startupCatchUpSkippedInspect: startupCatchUpInspectCalls === 0,
   offlineAutomatic: offlineAutomatic.message,

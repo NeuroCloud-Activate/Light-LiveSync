@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.41
+
+- Requests startup sync before the startup configuration scan, so app-open CouchDB catch-up begins immediately.
+- Starts vault-change sync as soon as the batching window ends instead of waiting behind the normal scheduler throttle.
+- Avoids extra full local summary scans during quiet CouchDB checks where no remote changes are returned.
+- Caches remote change batches without repeated summary refreshes, keeping larger pull pages lighter while still yielding between local cache batches.
+- Defers sync-start diagnostics persistence briefly so startup sync work is not competing with an immediate settings write.
+
 ## 0.1.40
 
 - Requests startup sync immediately after the vault layout is ready, then runs the automatic runtime check after sync has had a chance to start.
