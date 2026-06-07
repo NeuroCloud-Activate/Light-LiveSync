@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.44
+
+- Defers synced community-plugin enablement and plugin reloads until after Obsidian has finished its startup layout work.
+- Retries synced plugin refresh when Obsidian has not discovered a plugin manifest yet, avoiding launch-time load races.
+- Recovers enabled-but-not-loaded synced plugins by using Obsidian's enable action after startup instead of forcing an early reload.
+
 ## 0.1.43
 
 - Keeps normal CouchDB inspections metadata-only, avoiding the extra recent-document sample download during routine sync checks.

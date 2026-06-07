@@ -131,6 +131,9 @@ function applyReasonSummary(label: string, reasons: string[]): string {
 }
 
 const FAST_CONFIG_SYNC_DELAY_MS = 2000;
+const OBSIDIAN_PLUGIN_REFRESH_DELAY_MS = 5000;
+const OBSIDIAN_PLUGIN_REFRESH_RETRY_MS = 5000;
+const OBSIDIAN_PLUGIN_REFRESH_MAX_ATTEMPTS = 4;
 const SNAPSHOT_CACHE_MAX_ENTRIES = 96;
 const SNAPSHOT_CACHE_MAX_BYTES = 12 * 1024 * 1024;
 const SNAPSHOT_CACHE_MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -166,6 +169,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private lastForegroundRemoteCheckAt = 0;
   private localSnapshotCache = new Map<string, SnapshotCacheEntry>();
   private localSnapshotCacheBytes = 0;
+  private layoutReadyAt = 0;
+  private obsidianPluginRefreshTimer?: number;
+  private obsidianPluginRefreshAttempts = 0;
+  private pendingObsidianPluginRefreshPaths = new Set<string>();
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -225,6 +232,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.reschedulePeriodicSync();
 
     this.app.workspace.onLayoutReady(() => {
+      this.layoutReadyAt = Date.now();
       if (this.configuredAtLoad && this.settings.syncOnStart && this.canRunAutomaticSync()) {
         this.log("Startup sync requested immediately.");
         this.scheduler.request("startup", true);
@@ -252,6 +260,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.statusPresenter?.cancel();
     this.clearCompletedStatusTimer();
     this.clearRuntimeDiagnosticsSaveTimer();
+    this.clearObsidianPluginRefreshTimer();
     this.clearPeriodicTimer();
     this.clearVaultChangeBatchTimer();
     this.clearLocalSnapshotCache();
@@ -1498,15 +1507,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       return;
     }
 
-    const pluginManager = (this.app as unknown as { plugins?: ObsidianPluginManager }).plugins;
     if (plan.appSettingsChanged.length > 0) {
       this.notifyObsidianSettingsChanged(plan.appSettingsChanged);
     }
-    if (plan.communityPluginsChanged) {
-      await this.refreshCommunityPluginEnablement(pluginManager);
-    }
-    if (plan.pluginsToReload.length > 0) {
-      await this.reloadSyncedPlugins(pluginManager, plan.pluginsToReload);
+    if (plan.communityPluginsChanged || plan.pluginsToReload.length > 0) {
+      this.queueDeferredObsidianPluginRefresh(changedPaths);
     }
     if (plan.ownPluginChanged) {
       this.log("Synced Light-LiveSync plugin files changed. Reload the app or disable/enable Light-LiveSync to use the new plugin bundle.");
@@ -1519,17 +1524,93 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.log(`Synced Obsidian settings updated: ${paths.join(", ")}.`);
   }
 
-  private async refreshCommunityPluginEnablement(pluginManager: ObsidianPluginManager | undefined): Promise<void> {
+  private queueDeferredObsidianPluginRefresh(changedPaths: string[]): void {
+    for (const path of changedPaths) {
+      this.pendingObsidianPluginRefreshPaths.add(path);
+    }
+    this.obsidianPluginRefreshAttempts = 0;
+    this.scheduleDeferredObsidianPluginRefresh(this.deferredObsidianPluginRefreshDelayMs());
+  }
+
+  private deferredObsidianPluginRefreshDelayMs(): number {
+    if (this.layoutReadyAt <= 0) {
+      return OBSIDIAN_PLUGIN_REFRESH_DELAY_MS;
+    }
+    return Math.max(1000, OBSIDIAN_PLUGIN_REFRESH_DELAY_MS - (Date.now() - this.layoutReadyAt));
+  }
+
+  private scheduleDeferredObsidianPluginRefresh(delayMs: number): void {
+    this.clearObsidianPluginRefreshTimer();
+    this.obsidianPluginRefreshTimer = window.setTimeout(() => {
+      void this.runDeferredObsidianPluginRefresh();
+    }, delayMs);
+    this.registerInterval(this.obsidianPluginRefreshTimer);
+  }
+
+  private clearObsidianPluginRefreshTimer(): void {
+    if (this.obsidianPluginRefreshTimer !== undefined) {
+      window.clearTimeout(this.obsidianPluginRefreshTimer);
+      this.obsidianPluginRefreshTimer = undefined;
+    }
+  }
+
+  private async runDeferredObsidianPluginRefresh(): Promise<void> {
+    const changedPaths = [...this.pendingObsidianPluginRefreshPaths];
+    this.pendingObsidianPluginRefreshPaths.clear();
+    this.obsidianPluginRefreshTimer = undefined;
+    if (changedPaths.length === 0) {
+      return;
+    }
+
+    const shouldRetry = await this.applyDeferredObsidianPluginRefresh(changedPaths);
+    if (!shouldRetry) {
+      this.obsidianPluginRefreshAttempts = 0;
+      return;
+    }
+
+    if (this.obsidianPluginRefreshAttempts >= OBSIDIAN_PLUGIN_REFRESH_MAX_ATTEMPTS) {
+      this.log("Synced community plugin refresh could not finish automatically. Reload the app or disable/enable the affected plugin once Obsidian has finished loading.");
+      this.obsidianPluginRefreshAttempts = 0;
+      return;
+    }
+
+    this.obsidianPluginRefreshAttempts++;
+    for (const path of changedPaths) {
+      this.pendingObsidianPluginRefreshPaths.add(path);
+    }
+    this.scheduleDeferredObsidianPluginRefresh(OBSIDIAN_PLUGIN_REFRESH_RETRY_MS);
+  }
+
+  private async applyDeferredObsidianPluginRefresh(changedPaths: string[]): Promise<boolean> {
+    const plan = planObsidianConfigRefresh(changedPaths, this.app.vault.configDir, this.manifest.id);
+    const pluginManager = (this.app as unknown as { plugins?: ObsidianPluginManager }).plugins;
+    let shouldRetry = false;
+    if (plan.communityPluginsChanged) {
+      shouldRetry = await this.refreshCommunityPluginEnablement(pluginManager) || shouldRetry;
+    }
+    if (plan.pluginsToReload.length > 0) {
+      shouldRetry = await this.reloadSyncedPlugins(pluginManager, plan.pluginsToReload) || shouldRetry;
+    }
+    return shouldRetry;
+  }
+
+  private async refreshCommunityPluginEnablement(pluginManager: ObsidianPluginManager | undefined): Promise<boolean> {
     const desired = await this.readCommunityPluginList();
     if (!desired || !pluginManager) {
-      this.log("Synced community plugin list changed. Obsidian plugin manager refresh was not available; reload the app to apply plugin enablement changes.");
-      return;
+      this.log("Synced community plugin list changed. Waiting for Obsidian's plugin manager before applying plugin enablement changes.");
+      return !!desired;
     }
 
     await pluginManager.loadManifests?.();
     const enabled = this.enabledCommunityPlugins(pluginManager);
-    const toEnable = [...desired].filter((id) => id !== this.manifest.id && !enabled.has(id)).sort();
+    const desiredToEnable = [...desired].filter((id) => id !== this.manifest.id && !enabled.has(id)).sort();
+    const waitingForManifest = desiredToEnable.filter((id) => !this.pluginManifestAvailable(pluginManager, id));
+    const toEnable = desiredToEnable.filter((id) => !waitingForManifest.includes(id));
     const toDisable = [...enabled].filter((id) => id !== this.manifest.id && !desired.has(id)).sort();
+
+    if (waitingForManifest.length > 0) {
+      this.log(`Synced community plugin list is waiting for Obsidian to discover: ${waitingForManifest.join(", ")}.`);
+    }
 
     for (const id of toDisable) {
       if (typeof pluginManager.disablePlugin !== "function") {
@@ -1552,6 +1633,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.log(
       `Synced community plugin list refreshed. Enabled ${toEnable.length}, disabled ${toDisable.length}.`
     );
+    return waitingForManifest.length > 0;
   }
 
   private async readCommunityPluginList(): Promise<Set<string> | undefined> {
@@ -1582,16 +1664,22 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     return new Set(Object.keys(pluginManager.plugins ?? {}));
   }
 
-  private async reloadSyncedPlugins(pluginManager: ObsidianPluginManager | undefined, pluginIds: string[]): Promise<void> {
+  private async reloadSyncedPlugins(pluginManager: ObsidianPluginManager | undefined, pluginIds: string[]): Promise<boolean> {
     if (!pluginManager) {
-      this.log(`Synced plugin settings changed for ${pluginIds.join(", ")}, but Obsidian plugin manager refresh was not available.`);
-      return;
+      this.log(`Synced plugin settings changed for ${pluginIds.join(", ")}. Waiting for Obsidian's plugin manager before reloading affected plugins.`);
+      return true;
     }
     await pluginManager.loadManifests?.();
     const enabled = this.enabledCommunityPlugins(pluginManager);
     let reloaded = 0;
+    let shouldRetry = false;
     for (const id of pluginIds) {
       if (!enabled.has(id)) {
+        continue;
+      }
+      if (!this.pluginManifestAvailable(pluginManager, id)) {
+        this.log(`Synced plugin ${id} changed, but Obsidian has not discovered its manifest yet. Waiting before reload.`);
+        shouldRetry = true;
         continue;
       }
       try {
@@ -1605,9 +1693,14 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (reloaded > 0) {
       this.log(`Reloaded ${reloaded} synced plugin${reloaded === 1 ? "" : "s"} after remote settings update.`);
     }
+    return shouldRetry;
   }
 
   private async reloadOnePlugin(pluginManager: ObsidianPluginManager, id: string): Promise<void> {
+    if (!this.pluginLoaded(pluginManager, id) && typeof pluginManager.enablePlugin === "function") {
+      await pluginManager.enablePlugin(id);
+      return;
+    }
     if (typeof pluginManager.reloadPlugin === "function") {
       await pluginManager.reloadPlugin(id);
       return;
@@ -1623,6 +1716,17 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       return;
     }
     throw new Error("No compatible Obsidian plugin reload action was available.");
+  }
+
+  private pluginManifestAvailable(pluginManager: ObsidianPluginManager, id: string): boolean {
+    if (!pluginManager.manifests) {
+      return true;
+    }
+    return Object.prototype.hasOwnProperty.call(pluginManager.manifests, id);
+  }
+
+  private pluginLoaded(pluginManager: ObsidianPluginManager, id: string): boolean {
+    return Object.prototype.hasOwnProperty.call(pluginManager.plugins ?? {}, id);
   }
 
   private applyBatchLimit(): number {
