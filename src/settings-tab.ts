@@ -496,7 +496,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.renderNumberSetting(containerEl, "Longest retry delay", "failedPushRetryMaxSec", 30, "Maximum seconds between retry attempts for the same failed upload.");
     this.renderNumberSetting(containerEl, "Sync failure cooldown", "syncFailureCooldownSec", 30, "Seconds automatic sync waits after a failed run before trying again. Manual Sync now can still run immediately.");
     this.renderNumberSetting(containerEl, "Remote check interval", "periodicSyncIntervalSec", 15, "Seconds between automatic CouchDB checks for changes from other devices. Normal checks are capped at 30 seconds; mobile foreground checks use 15 seconds.", 30);
-    this.renderNumberSetting(containerEl, "Minimum time between syncs", "minimumSyncIntervalMs", 5000, "Milliseconds. Startup, manual, save-triggered, and periodic sync requests all share this throttle.");
+    this.renderNumberSetting(containerEl, "Minimum time between syncs", "minimumSyncIntervalMs", 5000, "Milliseconds. Applies to normal save-triggered syncs; startup, setup, manual, and active-app checks can run immediately.");
   }
 
   private renderBooleanSetting(

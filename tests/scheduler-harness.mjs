@@ -107,6 +107,28 @@ await new Promise((resolve) => setTimeout(resolve, 30));
 assert.equal(continuationCalls, 2);
 assert.match(continueLogs.join(" "), /continue with another sync pass/);
 
+const preemptedReasons = [];
+const preemptScheduler = new SyncScheduler(
+  {
+    async sync(reason) {
+      preemptedReasons.push(reason);
+      return { ok: true, message: `${reason} ok.` };
+    }
+  },
+  {
+    getMinimumIntervalMs: (reason) => reason === "periodic" ? 1000 : 0,
+    log: () => {},
+    setStatus: () => {}
+  }
+);
+preemptScheduler.request("manual", true);
+await new Promise((resolve) => setTimeout(resolve, 20));
+preemptScheduler.request("periodic");
+await new Promise((resolve) => setTimeout(resolve, 20));
+preemptScheduler.request("startup", true);
+await new Promise((resolve) => setTimeout(resolve, 30));
+assert.deepEqual(preemptedReasons, ["manual", "startup"]);
+
 const minimumIntervalReasons = [];
 const reasonAwareScheduler = new SyncScheduler(
   {
@@ -137,5 +159,6 @@ console.log(JSON.stringify({
   automaticCooldown: true,
   manualBypass: true,
   automaticContinuation: true,
+  immediatePreemptsDelayed: true,
   reasonAwareMinimum: true
 }, null, 2));

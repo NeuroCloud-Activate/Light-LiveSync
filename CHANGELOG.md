@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.39
+
+- Reduces default local-change batching from 60 seconds to 10 seconds and migrates older default installs to the faster setting.
+- Lets immediate startup, setup, foreground, and manual sync requests preempt delayed scheduled checks so app-open catch-up starts right away.
+- Uploads recently changed `.obsidian` configuration and community plugin files quickly, including `community-plugins.json` and installed plugin bundles that may not emit normal vault events.
+
 ## 0.1.38
 
 - Moves the setup URI passphrase field above the setup URI block so iPhone keyboards do not cover the field during add-device setup.

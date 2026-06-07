@@ -41,7 +41,11 @@ export class SyncScheduler {
     }
 
     if (this.scheduledTimer !== undefined) {
-      return;
+      if (!immediate) {
+        return;
+      }
+      window.clearTimeout(this.scheduledTimer);
+      this.scheduledTimer = undefined;
     }
 
     const delay = immediate ? 0 : this.delayUntilNextAllowedRun(reason);

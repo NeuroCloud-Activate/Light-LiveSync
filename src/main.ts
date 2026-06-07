@@ -110,6 +110,8 @@ function applyReasonSummary(label: string, reasons: string[]): string {
   return reasons.length > 0 ? ` ${label}: ${reasons.join("; ")}` : "";
 }
 
+const FAST_CONFIG_SYNC_DELAY_MS = 2000;
+
 export default class LightweightLiveSyncPlugin extends Plugin {
   settings: LightweightLiveSyncSettings = DEFAULT_SETTINGS;
   private scheduler!: SyncScheduler;
@@ -121,6 +123,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private localStores = new Map<string, LocalDocumentStore>();
   private suppressVaultEventQueue = false;
   private vaultChangeBatchTimer?: number;
+  private vaultChangeBatchDueAt = 0;
   private configuredAtLoad = false;
   private sessionCredentials: CredentialPayload | null = null;
   private lastProgressLogAt = 0;
@@ -191,7 +194,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.app.workspace.onLayoutReady(() => {
       void this.runAutomaticRuntimeCheck();
       if (this.configuredAtLoad && this.settings.syncOnStart && this.canRunAutomaticSync()) {
-        this.scheduler.request("startup", true);
+        void this.queueRecentlyChangedConfigForSync("Startup config scan").finally(() => {
+          this.scheduler.request("startup", true);
+        });
       }
     });
   }
@@ -265,6 +270,12 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       this.settings.periodicSyncIntervalSec = DEFAULT_REMOTE_CHECK_INTERVAL_SEC;
     } else if (loaded.periodicSyncIntervalSec < FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC) {
       this.settings.periodicSyncIntervalSec = FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC;
+    }
+    if (loaded?.vaultChangeBatchWindowSec === undefined || loaded.vaultChangeBatchWindowSec >= 60) {
+      this.settings.vaultChangeBatchWindowSec = DEFAULT_SETTINGS.vaultChangeBatchWindowSec;
+    }
+    if (loaded?.minimumSyncIntervalMs === undefined || loaded.minimumSyncIntervalMs >= 30000) {
+      this.settings.minimumSyncIntervalMs = DEFAULT_SETTINGS.minimumSyncIntervalMs;
     }
     if (Platform.isMobile && !this.settings.couchDb.useRequestApi) {
       this.settings.couchDb.useRequestApi = true;
@@ -1503,7 +1514,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       }
       this.lastForegroundRemoteCheckAt = now;
       this.logProgress("App became active; checking CouchDB for remote changes.", true);
-      this.scheduler.request("periodic", true);
+      void this.queueRecentlyChangedConfigForSync("Foreground config scan").finally(() => {
+        this.scheduler.request("periodic", true);
+      });
     };
     const handleVisibilityChange = () => {
       this.reschedulePeriodicSync();
@@ -1538,7 +1551,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (startingNewBatch) {
       this.logProgress(`Local ${deleted ? "delete" : "edit"} noticed for ${path}. Upload will start after the batching window.`, true);
     }
-    this.scheduleVaultChangeBatchSync();
+    this.scheduleVaultChangeBatchSync(this.isConfigSyncPath(path) ? FAST_CONFIG_SYNC_DELAY_MS : undefined);
   }
 
   private shouldQueueVaultPath(path: string): boolean {
@@ -1550,6 +1563,12 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     );
   }
 
+  private isConfigSyncPath(path: string): boolean {
+    const cleaned = normalizePath(path);
+    const configDir = normalizePath(this.app.vault.configDir);
+    return cleaned === configDir || cleaned.startsWith(`${configDir}/`);
+  }
+
   private reschedulePeriodicSync(): void {
     this.clearPeriodicTimer();
     if (!this.settings.periodicSync || this.settings.periodicSyncIntervalSec <= 0 || !this.canRunAutomaticSync()) {
@@ -1558,7 +1577,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     const intervalSec = this.effectiveRemoteCheckIntervalSec();
     this.periodicTimer = window.setInterval(() => {
       if (this.canRunAutomaticSync()) {
-        this.scheduler.request("periodic");
+        void this.queueRecentlyChangedConfigForSync("Periodic config scan").finally(() => {
+          this.scheduler.request("periodic");
+        });
       }
     }, intervalSec * 1000);
     this.registerInterval(this.periodicTimer);
@@ -1580,7 +1601,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (reason === "periodic") {
       return this.effectiveRemoteCheckIntervalSec() * 1000;
     }
-    return Math.max(FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC * 1000, this.settings.minimumSyncIntervalMs);
+    if (reason === "startup" || reason === "setup-import" || reason === "setup-qr-import" || reason === "manual") {
+      return 0;
+    }
+    return Math.max(0, this.settings.minimumSyncIntervalMs);
   }
 
   private isNetworkLikelyOnline(): boolean {
@@ -1604,20 +1628,28 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
   }
 
-  private scheduleVaultChangeBatchSync(): void {
+  private scheduleVaultChangeBatchSync(delayOverrideMs?: number): void {
     if (!this.canRunAutomaticSync()) {
       this.setStatus("Changes queued. Update saved credentials to sync.");
       return;
     }
 
+    const delayMs = delayOverrideMs ?? Math.max(0, this.settings.vaultChangeBatchWindowSec) * 1000;
+    const dueAt = Date.now() + delayMs;
     if (this.vaultChangeBatchTimer !== undefined) {
-      this.setStatus(`Batching vault changes for ${this.settings.vaultChangeBatchWindowSec}s`);
-      return;
+      if (dueAt >= this.vaultChangeBatchDueAt) {
+        const remainingMs = Math.max(0, this.vaultChangeBatchDueAt - Date.now());
+        this.setStatus(remainingMs > 0 ? `Batching vault changes for ${Math.ceil(remainingMs / 1000)}s` : "Sync queued: vault-change");
+        return;
+      }
+      window.clearTimeout(this.vaultChangeBatchTimer);
+      this.vaultChangeBatchTimer = undefined;
     }
 
-    const delayMs = Math.max(0, this.settings.vaultChangeBatchWindowSec) * 1000;
+    this.vaultChangeBatchDueAt = dueAt;
     this.vaultChangeBatchTimer = window.setTimeout(() => {
       this.vaultChangeBatchTimer = undefined;
+      this.vaultChangeBatchDueAt = 0;
       this.scheduler.request("vault-change");
     }, delayMs);
     this.registerInterval(this.vaultChangeBatchTimer);
@@ -1629,6 +1661,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       window.clearTimeout(this.vaultChangeBatchTimer);
       this.vaultChangeBatchTimer = undefined;
     }
+    this.vaultChangeBatchDueAt = 0;
   }
 
   private async updateRemoteInspection(inspection: RemoteInspection): Promise<void> {
@@ -1969,6 +2002,70 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       if (shouldScanVaultFolder(path, this.syncPathOptions())) {
         await this.yieldToUi();
         await this.collectAdapterPathsForSync(adapter, path, paths);
+      }
+    }
+  }
+
+  private async queueRecentlyChangedConfigForSync(label: string): Promise<LocalStoreSummary | undefined> {
+    if (!this.settings.configured || !this.settings.couchDb.database || !this.settings.syncOnSave) {
+      return undefined;
+    }
+    const since = this.settings.runtime.lastSyncFinishedAt;
+    if (since <= 0) {
+      return undefined;
+    }
+    const adapter = this.app.vault.adapter as VaultListAdapter;
+    if (typeof adapter.list !== "function") {
+      return undefined;
+    }
+
+    const paths = new Set<string>();
+    await this.collectRecentlyChangedConfigPaths(adapter, normalizePath(this.app.vault.configDir), since, paths);
+    if (paths.size === 0) {
+      return undefined;
+    }
+
+    const changes = [...paths].sort().map((path) => ({
+      path,
+      deleted: false
+    }));
+    const store = this.getLocalStore(this.settings.couchDb.database);
+    const summary = await store.queueLocalChanges(changes);
+    await this.updateLocalQueue(summary);
+    this.log(`${label} queued ${changes.length} recently changed configuration/plugin file${changes.length === 1 ? "" : "s"} for upload.`);
+    return summary;
+  }
+
+  private async collectRecentlyChangedConfigPaths(
+    adapter: VaultListAdapter,
+    folder: string,
+    since: number,
+    paths: Set<string>
+  ): Promise<void> {
+    if (!shouldScanVaultFolder(folder, this.syncPathOptions())) {
+      return;
+    }
+    const listed = await adapter.list?.(folder);
+    if (!listed) {
+      return;
+    }
+
+    for (const file of listed.files) {
+      const path = normalizePath(file);
+      if (!this.isConfigSyncPath(path) || !this.shouldSyncPath(path)) {
+        continue;
+      }
+      const stat = await adapter.stat?.(path);
+      if ((stat?.mtime ?? 0) > since) {
+        paths.add(path);
+      }
+    }
+
+    for (const childFolder of listed.folders) {
+      const path = normalizePath(childFolder);
+      if (this.isConfigSyncPath(path) && shouldScanVaultFolder(path, this.syncPathOptions())) {
+        await this.yieldToUi();
+        await this.collectRecentlyChangedConfigPaths(adapter, path, since, paths);
       }
     }
   }

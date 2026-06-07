@@ -84,7 +84,7 @@ assert.equal(projected.usePathObfuscation, true);
 assert.equal(projected.syncOnSave, true);
 assert.equal(projected.periodicSync, true);
 assert.equal(projected.periodicSyncIntervalSec, 30);
-assert.equal(projected.vaultChangeBatchWindowSec, 60);
+assert.equal(projected.vaultChangeBatchWindowSec, 10);
 assert.equal(projected.maxPushChangesPerSync, 1000);
 assert.equal(projected.autoUnlockCredentials, true);
 assert.equal(normaliseCouchDbUri("203.0.113.10:5984"), "http://203.0.113.10:5984");
