@@ -40,7 +40,7 @@ const disk = settingsForDisk(projected);
 if (projected.deviceSetupRole !== "additional-device") {
   throw new Error(`Expected QR import to use additional-device role, got ${projected.deviceSetupRole}.`);
 }
-assert.equal(projected.periodicSyncIntervalSec, 30);
+assert.equal(projected.periodicSyncIntervalSec, 15);
 
 console.log(JSON.stringify({
   ok: true,

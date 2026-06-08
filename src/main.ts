@@ -130,6 +130,10 @@ function applyReasonSummary(label: string, reasons: string[]): string {
   return reasons.length > 0 ? ` ${label}: ${reasons.join("; ")}` : "";
 }
 
+function hasRecordKey(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
 const FAST_CONFIG_SYNC_DELAY_MS = 2000;
 const OBSIDIAN_PLUGIN_REFRESH_DELAY_MS = 5000;
 const OBSIDIAN_PLUGIN_REFRESH_RETRY_MS = 5000;
@@ -137,6 +141,7 @@ const OBSIDIAN_PLUGIN_REFRESH_MAX_ATTEMPTS = 4;
 const SNAPSHOT_CACHE_MAX_ENTRIES = 96;
 const SNAPSHOT_CACHE_MAX_BYTES = 12 * 1024 * 1024;
 const SNAPSHOT_CACHE_MAX_FILE_BYTES = 2 * 1024 * 1024;
+const CONFIG_FALLBACK_SCAN_INTERVAL_MS = 60 * 1000;
 
 type SnapshotCacheEntry = {
   snapshot: LocalFileSnapshot;
@@ -173,6 +178,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private obsidianPluginRefreshTimer?: number;
   private obsidianPluginRefreshAttempts = 0;
   private pendingObsidianPluginRefreshPaths = new Set<string>();
+  private lastConfigFallbackScanAt = 0;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -236,7 +242,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       if (this.configuredAtLoad && this.settings.syncOnStart && this.canRunAutomaticSync()) {
         this.log("Startup sync requested immediately.");
         this.scheduler.request("startup", true);
-        void this.queueRecentlyChangedConfigForSync("Startup config scan")
+        void this.queueRecentlyChangedConfigForSync("Startup config scan", { force: true })
           .then((summary) => {
             if ((summary?.pendingPush ?? 0) > 0) {
               this.scheduler.request("vault-change", true);
@@ -1720,14 +1726,15 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private pluginManifestAvailable(pluginManager: ObsidianPluginManager, id: string): boolean {
-    if (!pluginManager.manifests) {
+    const manifests = pluginManager.manifests;
+    if (!manifests) {
       return true;
     }
-    return Object.prototype.hasOwnProperty.call(pluginManager.manifests, id);
+    return hasRecordKey(manifests, id);
   }
 
   private pluginLoaded(pluginManager: ObsidianPluginManager, id: string): boolean {
-    return Object.prototype.hasOwnProperty.call(pluginManager.plugins ?? {}, id);
+    return hasRecordKey(pluginManager.plugins ?? {}, id);
   }
 
   private applyBatchLimit(): number {
@@ -1804,7 +1811,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       }
       this.lastForegroundRemoteCheckAt = now;
       this.logProgress("App became active; checking CouchDB for remote changes.", true);
-      void this.queueRecentlyChangedConfigForSync("Foreground config scan").finally(() => {
+      void this.queueRecentlyChangedConfigForSync("Foreground config scan", {
+        minIntervalMs: FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC * 1000
+      }).finally(() => {
         this.scheduler.request("periodic", true);
       });
     };
@@ -1863,7 +1872,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     const intervalSec = this.effectiveRemoteCheckIntervalSec();
     this.periodicTimer = window.setInterval(() => {
       if (this.canRunAutomaticSync()) {
-        void this.queueRecentlyChangedConfigForSync("Periodic config scan").finally(() => {
+        void this.queueRecentlyChangedConfigForSync("Periodic config scan", {
+          minIntervalMs: CONFIG_FALLBACK_SCAN_INTERVAL_MS
+        }).finally(() => {
           this.scheduler.request("periodic");
         });
       }
@@ -2319,7 +2330,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
   }
 
-  private async queueRecentlyChangedConfigForSync(label: string): Promise<LocalStoreSummary | undefined> {
+  private async queueRecentlyChangedConfigForSync(
+    label: string,
+    options: { force?: boolean; minIntervalMs?: number } = {}
+  ): Promise<LocalStoreSummary | undefined> {
     if (!this.settings.configured || !this.settings.couchDb.database || !this.settings.syncOnSave) {
       return undefined;
     }
@@ -2327,6 +2341,12 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (since <= 0) {
       return undefined;
     }
+    const now = Date.now();
+    const minIntervalMs = Math.max(0, options.minIntervalMs ?? 0);
+    if (!options.force && minIntervalMs > 0 && now - this.lastConfigFallbackScanAt < minIntervalMs) {
+      return undefined;
+    }
+    this.lastConfigFallbackScanAt = now;
     const adapter = this.app.vault.adapter as VaultListAdapter;
     if (typeof adapter.list !== "function") {
       return undefined;

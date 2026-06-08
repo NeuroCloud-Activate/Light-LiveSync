@@ -1,6 +1,6 @@
 export type RemoteKind = "couchdb";
 export type DeviceSetupRole = "initial-device" | "additional-device";
-export const DEFAULT_REMOTE_CHECK_INTERVAL_SEC = 30;
+export const DEFAULT_REMOTE_CHECK_INTERVAL_SEC = 15;
 export const FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC = 15;
 
 export type CouchDbSettings = {

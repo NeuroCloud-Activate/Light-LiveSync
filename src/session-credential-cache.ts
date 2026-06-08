@@ -104,10 +104,14 @@ function isSessionCredentialScope(value: unknown): value is SessionCredentialSco
   );
 }
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 function readJsonObject(value: string): Record<string, unknown> | null {
   try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+    const parsed: unknown = JSON.parse(value);
+    return isJsonObject(parsed) ? parsed : null;
   } catch {
     return null;
   }

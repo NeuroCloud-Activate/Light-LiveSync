@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.46
+
+- Lowers normal desktop CouchDB checkpoint polling to 15 seconds to improve cross-device pickup time.
+- Keeps the faster polling lightweight by throttling periodic configuration-folder fallback scans separately, so regular remote checks do not repeatedly walk plugin/settings files.
+- Keeps startup and foreground config scans responsive while relying on vault events, fingerprints, and in-memory snapshots for changed-file uploads.
+- Cleans up Obsidian review warnings around typed JSON parsing, plugin-manager key checks, and mobile stylesheet compatibility.
+
 ## 0.1.45
 
 - Reworks upload chunk splitting without lookbehind regular expressions so older iOS WebKit versions can load the plugin.
