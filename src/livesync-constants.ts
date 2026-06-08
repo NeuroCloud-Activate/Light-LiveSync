@@ -13,7 +13,7 @@ export const ENTRY_TYPES = {
   MILESTONE_INFO: "milestoneinfo"
 } as const;
 
-export type LiveSyncEntryType = (typeof ENTRY_TYPES)[keyof typeof ENTRY_TYPES] | string;
+export type LiveSyncEntryType = (typeof ENTRY_TYPES)[keyof typeof ENTRY_TYPES] | (string & {});
 
 export type LiveSyncEntryBase = {
   _id: string;

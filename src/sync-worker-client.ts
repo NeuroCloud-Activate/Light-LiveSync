@@ -34,9 +34,12 @@ export class OptionalSyncWorkerClient {
   }
 
   async buildPushBundle(snapshot: LocalFileSnapshot, options: LiveSyncBuildOptions): Promise<LiveSyncPushBundle> {
+    const yieldToUi = this.options.yieldToUi
+      ? async () => this.options.yieldToUi?.()
+      : undefined;
     if (!this.options.enabled() || this.disabled) {
-      await this.options.yieldToUi?.();
-      return buildLiveSyncPushBundle(snapshot, options, { yieldToUi: this.options.yieldToUi });
+      await yieldToUi?.();
+      return buildLiveSyncPushBundle(snapshot, options, { yieldToUi });
     }
 
     try {
@@ -48,8 +51,8 @@ export class OptionalSyncWorkerClient {
         this.options.log(`Background worker failed; using the cooperative main-thread push builder for this session. ${friendlyWorkerError(error)}`);
         console.warn("[Light-LiveSync] Background worker unavailable; using main-thread push builder.", error);
       }
-      await this.options.yieldToUi?.();
-      return buildLiveSyncPushBundle(snapshot, options, { yieldToUi: this.options.yieldToUi });
+      await yieldToUi?.();
+      return buildLiveSyncPushBundle(snapshot, options, { yieldToUi });
     }
   }
 

@@ -1,6 +1,13 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+if (typeof globalThis.window === "undefined") {
+  globalThis.window = globalThis;
+}
+if (typeof globalThis.self === "undefined") {
+  globalThis.self = globalThis;
+}
+
 const STUBS = {
   "octagonal-wheels/encryption/encryption": "./tests/stubs/octagonal-encryption.mjs",
   "octagonal-wheels/encryption/hkdf": "./tests/stubs/octagonal-hkdf.mjs",

@@ -174,7 +174,7 @@ function encodeBasicAuth(username: string, password: string): string | undefined
   if (!username && !password) {
     return undefined;
   }
-  return `Basic ${btoa(`${username}:${password}`)}`;
+  return `Basic ${window.btoa(`${username}:${password}`)}`;
 }
 
 function joinUrl(base: string, path = ""): string {
@@ -230,12 +230,12 @@ function textFromResponse(response: CouchDbRawResponse): string {
 
 function randomBase64(byteLength: number): string {
   const bytes = new Uint8Array(byteLength);
-  globalThis.crypto.getRandomValues(bytes);
+  window.crypto.getRandomValues(bytes);
   let binary = "";
   for (const byte of bytes) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary);
+  return window.btoa(binary);
 }
 
 function messageFromError(error: unknown): string {
@@ -712,9 +712,7 @@ export class CouchDbClient {
     method = "GET",
     body?: unknown
   ): Promise<CouchDbRawResponse> {
-    return this.settings.useRequestApi
-      ? this.requestWithObsidianApi(path, includeDatabase, method, body)
-      : this.requestWithFetch(path, includeDatabase, method, body);
+    return this.requestWithObsidianApi(path, includeDatabase, method, body);
   }
 
   private async requestWithObsidianApi(
@@ -723,10 +721,10 @@ export class CouchDbClient {
     method = "GET",
     body?: unknown
   ): Promise<CouchDbRawResponse> {
-    let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+    let timeout: number | undefined;
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
-        timeout = globalThis.setTimeout(() => {
+        timeout = window.setTimeout(() => {
           reject(new Error(`CouchDB request timed out after ${COUCHDB_REQUEST_TIMEOUT_MS}ms.`));
         }, COUCHDB_REQUEST_TIMEOUT_MS);
       });
@@ -738,42 +736,8 @@ export class CouchDbClient {
       throw new CouchDbClientError(couchDbTransportMessage(error, this.settings.uri), undefined, { cause: error });
     } finally {
       if (timeout !== undefined) {
-        globalThis.clearTimeout(timeout);
+        window.clearTimeout(timeout);
       }
-    }
-  }
-
-  private async requestWithFetch(
-    path: string,
-    includeDatabase: boolean,
-    method = "GET",
-    body?: unknown
-  ): Promise<CouchDbRawResponse> {
-    const controller = new AbortController();
-    const timeout = globalThis.setTimeout(() => {
-      controller.abort(new Error(`CouchDB request timed out after ${COUCHDB_REQUEST_TIMEOUT_MS}ms.`));
-    }, COUCHDB_REQUEST_TIMEOUT_MS);
-    const request = this.buildRequest(path, includeDatabase, method, body);
-    try {
-      const response = await fetch(request.url, {
-        method,
-        headers: {
-          ...request.headers,
-          ...(request.contentType ? { "Content-Type": request.contentType } : {})
-        },
-        body: request.body,
-        signal: controller.signal
-      });
-      const arrayBuffer = await response.arrayBuffer();
-      return {
-        status: response.status,
-        text: new TextDecoder().decode(arrayBuffer),
-        arrayBuffer
-      };
-    } catch (error) {
-      throw new CouchDbClientError(couchDbTransportMessage(error, this.settings.uri), undefined, { cause: error });
-    } finally {
-      globalThis.clearTimeout(timeout);
     }
   }
 

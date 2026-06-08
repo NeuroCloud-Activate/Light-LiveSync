@@ -5,12 +5,14 @@ const KEY_LENGTH_BITS = 256;
 
 function randomBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length);
-  globalThis.crypto.getRandomValues(bytes);
+  window.crypto.getRandomValues(bytes);
   return bytes;
 }
 
 function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -18,11 +20,11 @@ function bytesToBase64(bytes: Uint8Array): string {
   for (const byte of bytes) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary);
+  return window.btoa(binary);
 }
 
 function base64ToBytes(value: string): Uint8Array {
-  const binary = atob(value);
+  const binary = window.atob(value);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
@@ -35,7 +37,7 @@ async function deriveKey(passphrase: string, salt: Uint8Array, iterations: numbe
     throw new Error("A credential unlock passphrase is required.");
   }
 
-  const keyMaterial = await globalThis.crypto.subtle.importKey(
+  const keyMaterial = await window.crypto.subtle.importKey(
     "raw",
     bytesToArrayBuffer(new TextEncoder().encode(passphrase)),
     "PBKDF2",
@@ -43,7 +45,7 @@ async function deriveKey(passphrase: string, salt: Uint8Array, iterations: numbe
     ["deriveKey"]
   );
 
-  return globalThis.crypto.subtle.deriveKey(
+  return window.crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
       hash: "SHA-256",
@@ -69,7 +71,7 @@ export async function encryptCredentialPayload(
   const iv = randomBytes(12);
   const key = await deriveKey(unlockPassphrase, salt, KDF_ITERATIONS);
   const plaintext = new TextEncoder().encode(JSON.stringify(payload));
-  const encrypted = await globalThis.crypto.subtle.encrypt(
+  const encrypted = await window.crypto.subtle.encrypt(
     {
       name: "AES-GCM",
       iv: bytesToArrayBuffer(iv)
@@ -103,7 +105,7 @@ export async function decryptCredentialPayload(
   const salt = base64ToBytes(store.salt);
   const iv = base64ToBytes(store.iv);
   const key = await deriveKey(unlockPassphrase, salt, store.iterations);
-  const decrypted = await globalThis.crypto.subtle.decrypt(
+  const decrypted = await window.crypto.subtle.decrypt(
     {
       name: "AES-GCM",
       iv: bytesToArrayBuffer(iv)

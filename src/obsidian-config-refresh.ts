@@ -20,7 +20,15 @@ export function planObsidianConfigRefresh(
   configDir: string,
   ownPluginId: string
 ): ObsidianConfigRefreshPlan {
-  const normalizedConfigDir = normalizePathPart(configDir || ".obsidian");
+  const normalizedConfigDir = normalizePathPart(configDir);
+  if (!normalizedConfigDir) {
+    return {
+      communityPluginsChanged: false,
+      appSettingsChanged: [],
+      pluginsToReload: [],
+      ownPluginChanged: false
+    };
+  }
   const pluginsFolder = `${normalizedConfigDir}/plugins`;
   const pluginsToReload = new Set<string>();
   const appSettingsChanged = new Set<string>();

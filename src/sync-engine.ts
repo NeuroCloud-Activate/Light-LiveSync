@@ -216,6 +216,12 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 function localSnapshotContentType(snapshot: LocalFileSnapshot): LocalFileInfo["contentType"] {
   return typeof snapshot.content === "string" ? "text" : "binary";
 }
@@ -224,9 +230,9 @@ async function localSnapshotFingerprint(snapshot: LocalFileSnapshot): Promise<st
   const bytes = typeof snapshot.content === "string"
     ? new TextEncoder().encode(snapshot.content)
     : new Uint8Array(snapshot.content);
-  const digest = await globalThis.crypto.subtle.digest(
+  const digest = await window.crypto.subtle.digest(
     "SHA-256",
-    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+    bytesToArrayBuffer(bytes)
   );
   return `v2:${localSnapshotContentType(snapshot)}:${snapshot.size}:${Math.trunc(snapshot.mtime)}:${bytesToHex(new Uint8Array(digest))}`;
 }

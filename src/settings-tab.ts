@@ -16,11 +16,15 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    this.render();
+  }
+
+  private render(): void {
     this.clearActivityLogListener();
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("light-livesync-settings");
-    new Setting(containerEl).setName("Light-LiveSync").setHeading();
+    new Setting(containerEl).setName("Sync setup").setHeading();
     containerEl.createEl("p", {
       text: "A low-noise vault sync setup for CouchDB. Defaults favor encrypted sync, bounded batches, automatic text merges, and recovery backups."
     });
@@ -46,6 +50,10 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   hide(): void {
     this.clearActivityLogListener();
     super.hide();
+  }
+
+  private refreshView(): void {
+    this.render();
   }
 
   private clearActivityLogListener(): void {
@@ -79,7 +87,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       tab.onclick = async () => {
         this.plugin.settings.settingsTab = tabSpec.id;
         await this.plugin.saveSettingsAndReschedule();
-        this.display();
+        this.refreshView();
       };
     }
   }
@@ -127,13 +135,13 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         .addButton((button) => {
           button.setButtonText("Connect CouchDB").setCta().onClick(async () => {
             await this.plugin.promptForDirectSetup();
-            this.display();
+            this.refreshView();
           });
         })
         .addButton((button) => {
           button.setButtonText("Use setup URI").onClick(async () => {
             await this.plugin.promptForSetupUri();
-            this.display();
+            this.refreshView();
           });
         });
       return;
@@ -146,7 +154,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         .addButton((button) => {
           button.setButtonText("Update saved credentials").setCta().onClick(async () => {
             await this.plugin.promptForServerCredentials();
-            this.display();
+            this.refreshView();
           });
         });
       return;
@@ -160,7 +168,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         .addButton((button) => {
           button.setButtonText("Update credentials").setCta().onClick(async () => {
             await this.plugin.promptForServerCredentials();
-            this.display();
+            this.refreshView();
           });
         });
       return;
@@ -178,7 +186,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         setting.addButton((button) => {
           button.setButtonText("Initialize remote").setCta().onClick(async () => {
             await this.plugin.initializeRemoteSyncParameters();
-            this.display();
+            this.refreshView();
           });
         });
       }
@@ -192,7 +200,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         .addButton((button) => {
           button.setButtonText("Check connection").setCta().onClick(async () => {
             await this.plugin.verifyConnectionNow();
-            this.display();
+            this.refreshView();
           });
         });
       return;
@@ -212,13 +220,13 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         .addButton((button) => {
           button.setButtonText("Try sync again").setCta().onClick(async () => {
             await this.plugin.syncNow();
-            this.display();
+            this.refreshView();
           });
         })
         .addButton((button) => {
           button.setButtonText("Update credentials").onClick(async () => {
             await this.plugin.promptForServerCredentials();
-            this.display();
+            this.refreshView();
           });
         });
       return;
@@ -231,7 +239,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         .addButton((button) => {
           button.setButtonText("Sync now").setCta().onClick(async () => {
             await this.plugin.syncNow();
-            this.display();
+            this.refreshView();
           });
         });
       return;
@@ -244,13 +252,13 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         .addButton((button) => {
           button.setButtonText("Apply next").setCta().onClick(async () => {
             await this.plugin.applyPullToVault();
-            this.display();
+            this.refreshView();
           });
         })
         .addButton((button) => {
           button.setButtonText("Preview").onClick(async () => {
             await this.plugin.previewQueuedPull();
-            this.display();
+            this.refreshView();
           });
         });
       return;
@@ -276,13 +284,13 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       .addButton((button) => {
         button.setButtonText("Prepare command").setCta().onClick(async () => {
           await this.plugin.promptForDirectSetup();
-          this.display();
+          this.refreshView();
         });
       })
       .addButton((button) => {
         button.setButtonText("Use setup URI").onClick(async () => {
           await this.plugin.promptForSetupUri();
-          this.display();
+          this.refreshView();
         });
       });
 
@@ -292,7 +300,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       .addButton((button) => {
         button.setButtonText("Copy setup command").onClick(async () => {
           await this.plugin.copyCouchDbSetupCommandFromSettings();
-          this.display();
+          this.refreshView();
         });
       });
 
@@ -306,7 +314,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       .addButton((button) => {
         button.setButtonText("Check connection").onClick(async () => {
           await this.plugin.verifyConnectionNow();
-          this.display();
+          this.refreshView();
         });
       });
 
@@ -316,7 +324,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       .addButton((button) => {
         button.setButtonText("Generate URI").onClick(async () => {
           await this.plugin.generateSetupUriForAdditionalDevice();
-          this.display();
+          this.refreshView();
         });
       });
 
@@ -326,7 +334,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       .addButton((button) => {
         button.setButtonText("Update saved credentials").onClick(async () => {
           await this.plugin.promptForServerCredentials();
-          this.display();
+          this.refreshView();
         });
       });
   }
@@ -350,7 +358,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       .addButton((button) => {
         button.setButtonText("Sync now").onClick(async () => {
           await this.plugin.syncNow();
-          this.display();
+          this.refreshView();
         });
       });
   }
@@ -430,7 +438,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       .addButton((button) => {
         button.setButtonText("Check connection").onClick(async () => {
           await this.plugin.verifyConnectionNow();
-          this.display();
+          this.refreshView();
         });
       });
   }
@@ -461,7 +469,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
             this.plugin.settings.encrypt = true;
           }
           await this.plugin.saveSettingsAndReschedule();
-          this.display();
+          this.refreshView();
         });
       });
 
@@ -525,7 +533,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         toggle.setValue(this.plugin.settings.periodicSync).onChange(async (value) => {
           this.plugin.settings.periodicSync = value;
           await this.plugin.saveSettingsAndReschedule();
-          this.display();
+          this.refreshView();
         });
       });
   }
@@ -690,7 +698,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
       .addButton((button) => {
         button.setButtonText("Clear").onClick(async () => {
           await this.plugin.clearActivityLog();
-          this.display();
+          this.refreshView();
         });
       });
 
@@ -742,7 +750,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
         toggle.setValue(this.plugin.settings.versioningEnabled).onChange(async (value) => {
           this.plugin.settings.versioningEnabled = value;
           await this.plugin.saveSettingsAndReschedule();
-          this.display();
+          this.refreshView();
         });
       });
 
@@ -767,7 +775,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
           .addButton((button) => {
             button.setButtonText("Restore").onClick(async () => {
               await this.plugin.restoreFileVersion(version);
-              this.display();
+              this.refreshView();
             });
           });
       }
@@ -787,7 +795,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
           .addButton((button) => {
             button.setButtonText("Restore").onClick(async () => {
               await this.plugin.restoreFileVersion(version);
-              this.display();
+              this.refreshView();
             });
           });
       }
@@ -880,13 +888,9 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
   }
 
   private vaultFilePaths(): string[] {
-    const getFiles = this.plugin.app.vault?.getFiles;
-    if (typeof getFiles !== "function") {
-      return [];
-    }
-    return getFiles.call(this.plugin.app.vault)
-      .map((file: { path?: unknown }) => typeof file.path === "string" ? file.path : "")
-      .filter(Boolean)
+    return this.plugin.app.vault.getFiles()
+      .map((file) => file.path)
+      .filter((path) => path.length > 0)
       .sort((left: string, right: string) => left.localeCompare(right));
   }
 

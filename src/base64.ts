@@ -21,19 +21,25 @@ function normaliseBase64(value: string): string {
   return padding === 0 ? normalised : normalised.padEnd(normalised.length + 4 - padding, "=");
 }
 
+function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 export function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   const batchSize = 0x8000;
   for (let offset = 0; offset < bytes.length; offset += batchSize) {
     binary += String.fromCharCode(...bytes.slice(offset, offset + batchSize));
   }
-  return btoa(binary);
+  return window.btoa(binary);
 }
 
-export function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
+export function base64ToBytes(value: string): Uint8Array {
   try {
-    const binary = atob(normaliseBase64(value));
-    const bytes = new Uint8Array(binary.length) as Uint8Array<ArrayBuffer>;
+    const binary: string = window.atob(normaliseBase64(value));
+    const bytes = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index += 1) {
       bytes[index] = binary.charCodeAt(index);
     }
@@ -48,5 +54,5 @@ export function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
 
 export function base64ToArrayBuffer(value: string): ArrayBuffer {
   const bytes = base64ToBytes(value);
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return arrayBufferFromBytes(bytes);
 }

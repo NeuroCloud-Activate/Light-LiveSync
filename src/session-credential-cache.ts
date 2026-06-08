@@ -43,24 +43,26 @@ function reloadProofStorageKey(scope: SessionCredentialScope): string {
 
 function hasSessionStorage(): boolean {
   try {
-    return typeof globalThis.sessionStorage !== "undefined";
+    return typeof window.sessionStorage !== "undefined";
   } catch {
     return false;
   }
 }
 
 function hasWebCrypto(): boolean {
-  return !!globalThis.crypto?.subtle && typeof globalThis.crypto.getRandomValues === "function";
+  return !!window.crypto?.subtle && typeof window.crypto.getRandomValues === "function";
 }
 
 function randomBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length);
-  globalThis.crypto.getRandomValues(bytes);
+  window.crypto.getRandomValues(bytes);
   return bytes;
 }
 
 function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -68,11 +70,11 @@ function bytesToBase64(bytes: Uint8Array): string {
   for (const byte of bytes) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary);
+  return window.btoa(binary);
 }
 
 function base64ToBytes(value: string): Uint8Array {
-  const binary = atob(value);
+  const binary = window.atob(value);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
@@ -135,7 +137,7 @@ function isStoredSessionCredentialReloadProof(
 }
 
 async function importSessionKey(rawKey: Uint8Array): Promise<CryptoKey> {
-  return globalThis.crypto.subtle.importKey(
+  return window.crypto.subtle.importKey(
     "raw",
     bytesToArrayBuffer(rawKey),
     { name: "AES-GCM" },
@@ -155,7 +157,7 @@ async function credentialReloadDigest(
     couchDbPassword: payload.couchDbPassword,
     passphrase: payload.passphrase
   }));
-  const digest = await globalThis.crypto.subtle.digest(
+  const digest = await window.crypto.subtle.digest(
     "SHA-256",
     bytesToArrayBuffer(encoded)
   );
@@ -172,7 +174,7 @@ function credentialPayloadFromUnknown(value: unknown): CredentialPayload {
 
 async function decryptStoredSessionCredential(stored: StoredSessionCredential): Promise<CredentialPayload> {
   const key = await importSessionKey(base64ToBytes(stored.key));
-  const decrypted = await globalThis.crypto.subtle.decrypt(
+  const decrypted = await window.crypto.subtle.decrypt(
     { name: "AES-GCM", iv: bytesToArrayBuffer(base64ToBytes(stored.iv)) },
     key,
     bytesToArrayBuffer(base64ToBytes(stored.data))
@@ -192,7 +194,7 @@ export async function saveSessionCredentialPayload(
   const iv = randomBytes(12);
   const key = await importSessionKey(rawKey);
   const plaintext = new TextEncoder().encode(JSON.stringify(payload));
-  const encrypted = await globalThis.crypto.subtle.encrypt(
+  const encrypted = await window.crypto.subtle.encrypt(
     { name: "AES-GCM", iv: bytesToArrayBuffer(iv) },
     key,
     bytesToArrayBuffer(plaintext)
@@ -206,7 +208,7 @@ export async function saveSessionCredentialPayload(
     iv: bytesToBase64(iv),
     data: bytesToBase64(new Uint8Array(encrypted))
   };
-  globalThis.sessionStorage.setItem(storageKey(scope), JSON.stringify(stored));
+  window.sessionStorage.setItem(storageKey(scope), JSON.stringify(stored));
   return true;
 }
 
@@ -226,7 +228,7 @@ export async function saveSessionCredentialReloadProof(
     nonce,
     digest: await credentialReloadDigest(scope, payload, nonce)
   };
-  globalThis.sessionStorage.setItem(reloadProofStorageKey(scope), JSON.stringify(stored));
+  window.sessionStorage.setItem(reloadProofStorageKey(scope), JSON.stringify(stored));
   return true;
 }
 
@@ -238,7 +240,7 @@ export async function verifySessionCredentialReloadProof(
     return "unavailable";
   }
 
-  const raw = globalThis.sessionStorage.getItem(reloadProofStorageKey(scope));
+  const raw = window.sessionStorage.getItem(reloadProofStorageKey(scope));
   if (!raw) {
     return "missing";
   }
@@ -262,7 +264,7 @@ export async function loadSessionCredentialPayload(
     return null;
   }
 
-  const raw = globalThis.sessionStorage.getItem(storageKey(scope));
+  const raw = window.sessionStorage.getItem(storageKey(scope));
   if (!raw) {
     return null;
   }
@@ -287,12 +289,12 @@ export function clearSessionCredentialPayload(scope: SessionCredentialScope): vo
   if (!hasSessionStorage()) {
     return;
   }
-  globalThis.sessionStorage.removeItem(storageKey(scope));
+  window.sessionStorage.removeItem(storageKey(scope));
 }
 
 export function clearSessionCredentialReloadProof(scope: SessionCredentialScope): void {
   if (!hasSessionStorage()) {
     return;
   }
-  globalThis.sessionStorage.removeItem(reloadProofStorageKey(scope));
+  window.sessionStorage.removeItem(reloadProofStorageKey(scope));
 }

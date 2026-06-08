@@ -1,4 +1,4 @@
-import { encrypt } from "octagonal-wheels/encryption/encryption";
+import { encryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 import { CONFIG_URI_BASE } from "./setup-uri";
 import type { LightweightLiveSyncSettings, UpstreamSetupSettings } from "./settings";
 
@@ -59,10 +59,6 @@ export async function generateAdditionalDeviceSetupUri(
   }
 
   const upstreamSettings = upstreamSetupFromRuntimeSettings(settings);
-  const encryptedSettings = await encrypt(
-    JSON.stringify(upstreamSettings),
-    setupPassphrase,
-    settings.useDynamicIterationCount
-  );
+  const encryptedSettings = await encryptWithEphemeralSalt(JSON.stringify(upstreamSettings), setupPassphrase, true);
   return `${CONFIG_URI_BASE}${encodeURIComponent(encryptedSettings)}`;
 }

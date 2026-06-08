@@ -83,6 +83,15 @@ function txDone(transaction: IDBTransaction): Promise<void> {
   });
 }
 
+function storeGet<T>(store: IDBObjectStore, key: IDBValidKey | IDBKeyRange): Promise<T | undefined> {
+  return dbRequest<T | undefined>(store.get(key) as IDBRequest<T | undefined>);
+}
+
+function storeGetAll<T>(source: IDBObjectStore | IDBIndex, query?: IDBValidKey | IDBKeyRange): Promise<T[]> {
+  const request = query === undefined ? source.getAll() : source.getAll(query);
+  return dbRequest<T[]>(request as IDBRequest<T[]>);
+}
+
 function classifyDocument(id: string, doc: LiveSyncDocument | undefined): CachedRemoteDocument["kind"] {
   if (isLiveSyncFileDocument(doc)) {
     return "file";
@@ -230,7 +239,7 @@ export class LocalDocumentStore {
     const transaction = db.transaction(STATE_STORE, "readonly");
     const done = txDone(transaction);
     const store = transaction.objectStore(STATE_STORE);
-    const checkpoint = await dbRequest<LocalSyncCheckpoint | undefined>(store.get(KEY_CHECKPOINT));
+    const checkpoint = await storeGet<LocalSyncCheckpoint>(store, KEY_CHECKPOINT);
     await done;
     return checkpoint ?? { lastRemoteSeq: "0", updatedAt: 0 };
   }
@@ -263,7 +272,7 @@ export class LocalDocumentStore {
 
     for (const change of changes) {
       lastSeq = seqToString(change.seq);
-      const previous = await dbRequest<CachedRemoteDocument | undefined>(documents.get(change.id));
+      const previous = await storeGet<CachedRemoteDocument>(documents, change.id);
       documents.put(cachedRemoteDocumentFromChange(change, previous, pulledAt));
     }
 
@@ -286,7 +295,7 @@ export class LocalDocumentStore {
     const documents = transaction.objectStore(DOCUMENT_STORE);
 
     for (const doc of docs) {
-      const previous = await dbRequest<CachedRemoteDocument | undefined>(documents.get(doc._id));
+      const previous = await storeGet<CachedRemoteDocument>(documents, doc._id);
       const cached: CachedRemoteDocument = {
         id: doc._id,
         rev: doc._rev ?? previous?.rev ?? "",
@@ -317,7 +326,7 @@ export class LocalDocumentStore {
     const transaction = db.transaction(DOCUMENT_STORE, "readonly");
     const done = txDone(transaction);
     const store = transaction.objectStore(DOCUMENT_STORE);
-    const items = await dbRequest<CachedRemoteDocument[]>(store.index("kind").getAll("file"));
+    const items = await storeGetAll<CachedRemoteDocument>(store.index("kind"), "file");
     await done;
     return items
       .filter((item) => (item[field] ?? 0) === 0)
@@ -330,7 +339,7 @@ export class LocalDocumentStore {
     const transaction = db.transaction(DOCUMENT_STORE, "readonly");
     const done = txDone(transaction);
     const store = transaction.objectStore(DOCUMENT_STORE);
-    const requests = ids.map(async (id) => [id, await dbRequest<CachedRemoteDocument | undefined>(store.get(id))] as const);
+    const requests = ids.map(async (id) => [id, await storeGet<CachedRemoteDocument>(store, id)] as const);
     const results = await Promise.all(requests);
     await done;
     return new Map(results.filter((entry): entry is readonly [string, CachedRemoteDocument] => !!entry[1]));
@@ -358,7 +367,7 @@ export class LocalDocumentStore {
     const done = txDone(transaction);
     const store = transaction.objectStore(PUSH_STORE);
     for (const change of uniqueChanges.values()) {
-      const existing = await dbRequest<PendingLocalPush | undefined>(store.get(change.path));
+      const existing = await storeGet<PendingLocalPush>(store, change.path);
       store.put({
         path: change.path,
         deleted: change.deleted,
@@ -378,7 +387,7 @@ export class LocalDocumentStore {
     const transaction = db.transaction(PUSH_STORE, "readonly");
     const done = txDone(transaction);
     const store = transaction.objectStore(PUSH_STORE);
-    const items = await dbRequest<PendingLocalPush[]>(store.getAll());
+    const items = await storeGetAll<PendingLocalPush>(store);
     await done;
     const now = Date.now();
     return items
@@ -410,7 +419,7 @@ export class LocalDocumentStore {
     const transaction = db.transaction(PUSH_STORE, "readwrite");
     const done = txDone(transaction);
     const store = transaction.objectStore(PUSH_STORE);
-    const existing = await dbRequest<PendingLocalPush | undefined>(store.get(path));
+    const existing = await storeGet<PendingLocalPush>(store, path);
     if (existing) {
       store.put({
         ...existing,
@@ -432,7 +441,7 @@ export class LocalDocumentStore {
     const transaction = db.transaction(PUSH_FINGERPRINT_STORE, "readonly");
     const done = txDone(transaction);
     const store = transaction.objectStore(PUSH_FINGERPRINT_STORE);
-    const existing = await dbRequest<LocalPushFingerprint | undefined>(store.get(path));
+    const existing = await storeGet<LocalPushFingerprint>(store, path);
     await done;
     const fingerprint = existing?.fingerprint ?? "";
     this.fingerprintCache.set(path, fingerprint);
@@ -460,7 +469,7 @@ export class LocalDocumentStore {
     const done = txDone(transaction);
     const store = transaction.objectStore(PUSH_FINGERPRINT_STORE);
     const loaded = await Promise.all(
-      missing.map(async (path) => [path, await dbRequest<LocalPushFingerprint | undefined>(store.get(path))] as const)
+      missing.map(async (path) => [path, await storeGet<LocalPushFingerprint>(store, path)] as const)
     );
     await done;
     for (const [path, existing] of loaded) {
@@ -518,7 +527,7 @@ export class LocalDocumentStore {
     const done = txDone(transaction);
     const store = transaction.objectStore(DOCUMENT_STORE);
     for (const id of ids) {
-      const item = await dbRequest<CachedRemoteDocument | undefined>(store.get(id));
+      const item = await storeGet<CachedRemoteDocument>(store, id);
       if (item) {
         store.put({ ...item, [field]: appliedAt });
       }
@@ -531,9 +540,7 @@ export class LocalDocumentStore {
     const transaction = db.transaction([DOCUMENT_STORE, STATE_STORE, PUSH_STORE], "readonly");
     const done = txDone(transaction);
     const documents = transaction.objectStore(DOCUMENT_STORE);
-    const checkpoint = await dbRequest<LocalSyncCheckpoint | undefined>(
-      transaction.objectStore(STATE_STORE).get(KEY_CHECKPOINT)
-    );
+    const checkpoint = await storeGet<LocalSyncCheckpoint>(transaction.objectStore(STATE_STORE), KEY_CHECKPOINT);
     const summary: LocalStoreSummary = {
       files: 0,
       chunks: 0,

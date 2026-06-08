@@ -1,4 +1,3 @@
-import { decrypt } from "octagonal-wheels/encryption/encryption";
 import { decrypt as decryptHKDF } from "octagonal-wheels/encryption/hkdf";
 import { base64ToBytes, Base64DecodeError } from "./base64";
 import {
@@ -38,14 +37,25 @@ type EncryptedMetadata = {
 };
 
 type EdenChunkRecord = Record<string, { data: string; epoch?: number }>;
+type LegacyEncryptionModule = {
+  decrypt(encryptedResult: string, passphrase: string, autoCalculateIterations: boolean): Promise<string>;
+};
+
+let legacyEncryptionModulePromise: Promise<LegacyEncryptionModule> | undefined;
 
 function hasTransformKey(options: DocumentTransformOptions): boolean {
   return !!options.passphrase && !!options.syncParameterSalt;
 }
 
+function exactBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy;
+}
+
 function syncParameterSaltBytes(options: DocumentTransformOptions): Uint8Array<ArrayBuffer> {
   try {
-    return base64ToBytes(options.syncParameterSalt);
+    return exactBytes(base64ToBytes(options.syncParameterSalt));
   } catch (error) {
     if (error instanceof Base64DecodeError) {
       throw new DocumentTransformError("Remote sync parameter salt is not valid base64.", { cause: error });
@@ -55,10 +65,13 @@ function syncParameterSaltBytes(options: DocumentTransformOptions): Uint8Array<A
 }
 
 async function tryLegacyDecrypt(input: string, passphrase: string, useDynamicIterationCount: boolean): Promise<string> {
+  legacyEncryptionModulePromise ??= import("octagonal-wheels/encryption/encryption")
+    .then((module) => module as unknown as LegacyEncryptionModule);
+  const legacyEncryption = await legacyEncryptionModulePromise;
   const failures: unknown[] = [];
   for (const dynamicIterations of [useDynamicIterationCount, false]) {
     try {
-      return await decrypt(input, passphrase, dynamicIterations);
+      return await legacyEncryption.decrypt(input, passphrase, dynamicIterations);
     } catch (error) {
       failures.push(error);
     }

@@ -1,5 +1,4 @@
 import {
-  decrypt,
   ENCRYPT_V1_PREFIX_PROBABLY,
   ENCRYPT_V2_PREFIX,
   ENCRYPT_V3_PREFIX
@@ -15,6 +14,11 @@ export const CONFIG_URI_BASE_QR = "obsidian://setuplivesync?settingsQR=";
 
 const SETUP_URI_IN_TEXT_PATTERN = /obsidian:\/\/setuplivesync\?settings=[^\s"'<>]+/i;
 const SETUP_URI_QR_IN_TEXT_PATTERN = /obsidian:\/\/setuplivesync\?settingsQR=[^\s"'<>]+/i;
+type LegacyEncryptionModule = {
+  decrypt(encryptedResult: string, passphrase: string, autoCalculateIterations: boolean): Promise<string>;
+};
+
+let legacyEncryptionModulePromise: Promise<LegacyEncryptionModule> | undefined;
 
 export class SetupUriError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -24,10 +28,13 @@ export class SetupUriError extends Error {
 }
 
 async function tryLegacyDecrypt(encrypted: string, passphrase: string): Promise<string> {
+  legacyEncryptionModulePromise ??= import("octagonal-wheels/encryption/encryption")
+    .then((module) => module as unknown as LegacyEncryptionModule);
+  const legacyEncryption = await legacyEncryptionModulePromise;
   const failures: unknown[] = [];
   for (const dynamicIterations of [false, true]) {
     try {
-      return await decrypt(encrypted, passphrase, dynamicIterations);
+      return await legacyEncryption.decrypt(encrypted, passphrase, dynamicIterations);
     } catch (error) {
       failures.push(error);
     }

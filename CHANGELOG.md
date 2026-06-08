@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.45
+
+- Reworks upload chunk splitting without lookbehind regular expressions so older iOS WebKit versions can load the plugin.
+- Uses Obsidian platform/window/document APIs for runtime checks, settings refreshes, and foreground sync detection.
+- Routes CouchDB traffic through Obsidian's request API and cleans up review warnings around base64, IndexedDB, path sanitizing, and setup URI encryption.
+
 ## 0.1.44
 
 - Defers synced community-plugin enablement and plugin reloads until after Obsidian has finished its startup layout work.

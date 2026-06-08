@@ -1,3 +1,10 @@
+if (typeof globalThis.window === "undefined") {
+  globalThis.window = globalThis;
+}
+if (typeof globalThis.self === "undefined") {
+  globalThis.self = globalThis;
+}
+
 export async function requestUrl() {
   if (process.env.OBSIDIAN_STUB_REQUEST_URL_MODE === "address-unreachable") {
     throw new Error("net::ERR_ADDRESS_UNREACHABLE");
@@ -34,6 +41,14 @@ export async function requestUrl() {
 export const Platform = {
   isMobile: process.env.OBSIDIAN_STUB_IS_MOBILE === "true",
   isDesktopApp: process.env.OBSIDIAN_STUB_IS_MOBILE !== "true"
+};
+
+export const activeWindow = globalThis.window ?? globalThis;
+
+export const activeDocument = globalThis.document ?? {
+  hidden: false,
+  addEventListener() {},
+  removeEventListener() {}
 };
 
 export class PluginSettingTab {

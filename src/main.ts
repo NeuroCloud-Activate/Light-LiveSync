@@ -483,12 +483,12 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private generateCredentialUnlockKey(): string {
     const bytes = new Uint8Array(32);
-    globalThis.crypto.getRandomValues(bytes);
+    activeWindow.crypto.getRandomValues(bytes);
     let binary = "";
     for (const byte of bytes) {
       binary += String.fromCharCode(byte);
     }
-    return btoa(binary);
+    return activeWindow.btoa(binary);
   }
 
   async resetLocalSyncState(databaseNameToClear = this.settings.couchDb.database): Promise<void> {
@@ -1011,12 +1011,13 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private runtimePlatformLabel(): string {
-    const navigator = globalThis.navigator;
-    const parts = [
-      navigator?.platform,
-      typeof navigator?.maxTouchPoints === "number" ? `${navigator.maxTouchPoints} touch points` : undefined
-    ].filter((part): part is string => !!part);
-    return parts.join("; ") || "unknown";
+    if (Platform.isMobile) {
+      return "mobile";
+    }
+    if (Platform.isDesktopApp) {
+      return "desktop";
+    }
+    return "unknown";
   }
 
   private async buildRuntimeCapabilitySnapshot(): Promise<RuntimeCapabilitySnapshot> {
@@ -1024,11 +1025,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       webCrypto: await this.checkWebCrypto(),
       sessionStorage: this.checkSessionStorage(),
       indexedDb: await this.checkIndexedDb(),
-      fetch: typeof globalThis.fetch === "function",
-      abortController: typeof globalThis.AbortController === "function",
-      textCodec: typeof globalThis.TextEncoder === "function" && typeof globalThis.TextDecoder === "function",
-      base64Codec: typeof globalThis.btoa === "function" && typeof globalThis.atob === "function",
-      workerConstructor: typeof globalThis.Worker === "function",
+      fetch: typeof activeWindow.fetch === "function",
+      abortController: "AbortController" in activeWindow,
+      textCodec: "TextEncoder" in activeWindow && "TextDecoder" in activeWindow,
+      base64Codec: typeof activeWindow.btoa === "function" && typeof activeWindow.atob === "function",
+      workerConstructor: "Worker" in activeWindow,
       workerScriptAvailable: this.workerSourceAvailable(),
       obsidianRequestApi: typeof requestUrl === "function"
     };
@@ -1037,8 +1038,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private async checkWebCrypto(): Promise<boolean> {
     try {
       const bytes = new Uint8Array(4);
-      globalThis.crypto.getRandomValues(bytes);
-      await globalThis.crypto.subtle.digest("SHA-256", bytes);
+      activeWindow.crypto.getRandomValues(bytes);
+      await activeWindow.crypto.subtle.digest("SHA-256", bytes);
       return true;
     } catch {
       return false;
@@ -1048,9 +1049,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private checkSessionStorage(): boolean {
     const key = `${this.manifest.id}:capability-check`;
     try {
-      globalThis.sessionStorage.setItem(key, "ok");
-      const ok = globalThis.sessionStorage.getItem(key) === "ok";
-      globalThis.sessionStorage.removeItem(key);
+      activeWindow.sessionStorage.setItem(key, "ok");
+      const ok = activeWindow.sessionStorage.getItem(key) === "ok";
+      activeWindow.sessionStorage.removeItem(key);
       return ok;
     } catch {
       return false;
@@ -1058,7 +1059,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private async checkIndexedDb(): Promise<boolean> {
-    const indexedDb = globalThis.indexedDB;
+    const indexedDb = activeWindow.indexedDB;
     if (!indexedDb) {
       return false;
     }
@@ -1790,7 +1791,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private registerForegroundRemoteChecks(): void {
     const requestForegroundCheck = () => {
-      if (typeof document !== "undefined" && document.hidden) {
+      if (activeDocument.hidden) {
         return;
       }
       if (!this.canRunAutomaticSync()) {
@@ -1809,19 +1810,15 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     };
     const handleVisibilityChange = () => {
       this.reschedulePeriodicSync();
-      if (typeof document === "undefined" || !document.hidden) {
+      if (!activeDocument.hidden) {
         requestForegroundCheck();
       }
     };
     window.addEventListener("focus", requestForegroundCheck);
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-    }
+    activeDocument.addEventListener("visibilitychange", handleVisibilityChange);
     this.register(() => {
       window.removeEventListener("focus", requestForegroundCheck);
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-      }
+      activeDocument.removeEventListener("visibilitychange", handleVisibilityChange);
     });
   }
 
@@ -1883,7 +1880,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private isMobileForeground(): boolean {
-    return Platform.isMobile && (typeof document === "undefined" || !document.hidden);
+    return Platform.isMobile && !activeDocument.hidden;
   }
 
   private minimumIntervalMsForSyncReason(reason: string): number {
@@ -1897,7 +1894,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private isNetworkLikelyOnline(): boolean {
-    return typeof navigator === "undefined" || navigator.onLine !== false;
+    return activeWindow.navigator.onLine !== false;
   }
 
   private yieldToUi(): Promise<void> {

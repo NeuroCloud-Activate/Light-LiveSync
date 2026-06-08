@@ -12,7 +12,10 @@ export type StagingApplyResult = {
 function cleanPathPart(part: string): string {
   return part
     .replace(/\\/g, "/")
-    .replace(/[:*?"<>|#\u0000-\u001f]/g, "_")
+    .replace(/[:*?"<>|#]/g, "_")
+    .split("")
+    .map((char) => char.charCodeAt(0) < 32 ? "_" : char)
+    .join("")
     .replace(/^\.+$/, "_")
     .trim()
     .slice(0, 160);

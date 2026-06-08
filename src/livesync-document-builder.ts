@@ -47,8 +47,24 @@ type XxHashApi = {
 
 let xxhashApiPromise: Promise<XxHashApi> | undefined;
 
-function textToBytes(value: string): Uint8Array<ArrayBuffer> {
-  return new TextEncoder().encode(value) as Uint8Array<ArrayBuffer>;
+function runtimeCrypto(): Crypto {
+  return self.crypto;
+}
+
+function textToBytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
+function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+function exactBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy;
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -57,9 +73,9 @@ function bytesToHex(bytes: Uint8Array): string {
 
 async function sha256Hex(value: string): Promise<string> {
   const bytes = textToBytes(value);
-  const digest = await globalThis.crypto.subtle.digest(
+  const digest = await runtimeCrypto().subtle.digest(
     "SHA-256",
-    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+    arrayBufferFromBytes(bytes)
   );
   return bytesToHex(new Uint8Array(digest));
 }
@@ -183,7 +199,7 @@ function splitTextIntoLiveSyncPieces(content: string, maxSize = DEFAULT_TEXT_CHU
   }
   const pieces: string[] = [];
   let buffer = "";
-  for (const line of content.split(/(?<=\n)/u)) {
+  for (const line of splitTextByLineEndings(content)) {
     if (buffer && buffer.length + line.length > maxSize) {
       pieces.push(buffer);
       buffer = "";
@@ -200,6 +216,21 @@ function splitTextIntoLiveSyncPieces(content: string, maxSize = DEFAULT_TEXT_CHU
     pieces.push(buffer);
   }
   return pieces;
+}
+
+function splitTextByLineEndings(content: string): string[] {
+  const lines: string[] = [];
+  let start = 0;
+  for (let index = 0; index < content.length; index += 1) {
+    if (content[index] === "\n") {
+      lines.push(content.slice(start, index + 1));
+      start = index + 1;
+    }
+  }
+  if (start < content.length) {
+    lines.push(content.slice(start));
+  }
+  return lines;
 }
 
 function splitBinaryIntoLiveSyncPieces(content: ArrayBuffer, maxSize = DEFAULT_BINARY_CHUNK_SIZE): string[] {
@@ -221,7 +252,7 @@ async function maybeEncryptData(data: string, options: LiveSyncBuildOptions): Pr
   if (!options.passphrase || !options.syncParameterSalt) {
     throw new Error("Encrypted push needs an unlocked passphrase and the remote sync-parameter salt.");
   }
-  return encryptHKDF(data, options.passphrase, base64ToBytes(options.syncParameterSalt));
+  return encryptHKDF(data, options.passphrase, exactBytes(base64ToBytes(options.syncParameterSalt)));
 }
 
 async function maybeEncryptMetadata(

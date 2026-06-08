@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 
 const node = process.execPath;
-const loaderArgs = ["--loader", "./tests/ts-extension-loader.mjs"];
+const loaderArgs = ["--import", "./tests/browser-globals.mjs", "--loader", "./tests/ts-extension-loader.mjs"];
 const tsHarnesses = [
   "connection-verifier-harness.mjs",
   "couchdb-transport-harness.mjs",
