@@ -148,6 +148,29 @@ const urlSafeBinaryPreview = await new DocumentReconstructor(
 assert.equal(urlSafeBinaryPreview.status, "ready");
 assert.deepEqual([...new Uint8Array(urlSafeBinaryPreview.content)], [251, 255]);
 
+const multiChunkPdfPreview = await new DocumentReconstructor(
+  new MemoryStore({
+    "h:pdf-a": chunk("h:pdf-a", "JVBERg=="),
+    "h:pdf-b": chunk("h:pdf-b", "LTEuNwo=")
+  }),
+  options
+).preview(
+  cached({
+    _id: "PDFs/example.pdf",
+    path: "PDFs/example.pdf",
+    type: "newnote",
+    children: ["h:pdf-a", "h:pdf-b"],
+    ctime: 1,
+    mtime: 2,
+    size: 10,
+    eden: {}
+  })
+);
+
+assert.equal(multiChunkPdfPreview.status, "ready");
+assert.equal(multiChunkPdfPreview.contentType, "binary");
+assert.equal(new TextDecoder().decode(multiChunkPdfPreview.content), "%PDF-1.7\n");
+
 const corruptBinaryPreview = await new DocumentReconstructor(
   new MemoryStore({
     "h:bad-bin": chunk("h:bad-bin", "not valid base64?")
@@ -291,6 +314,7 @@ console.log(JSON.stringify({
   eden: true,
   binary: true,
   urlSafeBinary: true,
+  multiChunkPdf: true,
   corruptBinary: corruptBinaryPreview.status,
   missingChunkRepairCalls,
   batchMissingChunkRepairCalls: batchMissingCalls.length,

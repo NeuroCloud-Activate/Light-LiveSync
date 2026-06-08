@@ -6,7 +6,7 @@ import {
   type LiveSyncFileDocument
 } from "./livesync-constants";
 import type { CachedRemoteDocument, LocalDocumentStore } from "./local-document-store";
-import { base64ToArrayBuffer, Base64DecodeError } from "./base64";
+import { base64ToBytes, Base64DecodeError } from "./base64";
 import {
   decryptChunkDocument,
   decryptFileDocument,
@@ -141,9 +141,29 @@ function edenChunk(doc: LiveSyncFileDocument, childId: string): LiveSyncChunkDoc
   };
 }
 
+function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+function binaryContentFromChunks(chunks: LiveSyncChunkDocument[]): ArrayBuffer {
+  const decodedChunks = chunks.map((chunk) => base64ToBytes(chunk.data));
+  const totalLength = decodedChunks.reduce((sum, bytes) => sum + bytes.byteLength, 0);
+  const content = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const bytes of decodedChunks) {
+    content.set(bytes, offset);
+    offset += bytes.byteLength;
+  }
+  return arrayBufferFromBytes(content);
+}
+
 function contentFromChunks(doc: LiveSyncFileDocument, chunks: LiveSyncChunkDocument[]): string | ArrayBuffer {
-  const content = chunks.map((chunk) => chunk.data).join("");
-  return doc.type === ENTRY_TYPES.NOTE_BINARY ? base64ToArrayBuffer(content) : content;
+  if (doc.type === ENTRY_TYPES.NOTE_BINARY) {
+    return binaryContentFromChunks(chunks);
+  }
+  return chunks.map((chunk) => chunk.data).join("");
 }
 
 export class DocumentReconstructor {

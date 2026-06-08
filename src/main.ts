@@ -2358,14 +2358,24 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       return undefined;
     }
 
-    const changes = [...paths].sort().map((path) => ({
+    const store = this.getLocalStore(this.settings.couchDb.database);
+    const sortedPaths = [...paths].sort();
+    const changedPaths = await this.filterPathsNeedingLocalPush(sortedPaths, store);
+    if (changedPaths.length === 0) {
+      const summary = await store.getSummary();
+      await this.updateLocalQueue(summary);
+      this.log(`${label} checked ${sortedPaths.length} recently changed configuration/plugin file${sortedPaths.length === 1 ? "" : "s"}; all were already synced.`);
+      return summary;
+    }
+
+    const changes = changedPaths.map((path) => ({
       path,
       deleted: false
     }));
-    const store = this.getLocalStore(this.settings.couchDb.database);
     const summary = await store.queueLocalChanges(changes);
     await this.updateLocalQueue(summary);
-    this.log(`${label} queued ${changes.length} recently changed configuration/plugin file${changes.length === 1 ? "" : "s"} for upload.`);
+    const skipped = sortedPaths.length - changedPaths.length;
+    this.log(`${label} queued ${changes.length} recently changed configuration/plugin file${changes.length === 1 ? "" : "s"} for upload; ${skipped} unchanged file${skipped === 1 ? "" : "s"} skipped locally.`);
     return summary;
   }
 

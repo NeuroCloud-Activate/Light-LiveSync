@@ -6,7 +6,7 @@ It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmr
 
 ## What It Does
 
-- Syncs Obsidian notes through a self-hosted CouchDB backend.
+- Syncs notes, PDFs, attachments, configuration files, and plugin data through a self-hosted CouchDB backend.
 - Keeps compatibility with the familiar `obsidian://setuplivesync?settings=...` setup URI flow.
 - Requires end-to-end encryption by default.
 - Batches local edits briefly by default so rapid typing does not spam the server.
@@ -159,6 +159,7 @@ The plugin is optimized around minimal work and minimal data movement.
 - A background worker is used when available, including an embedded worker source for mobile environments that cannot read a worker file directly. If workers are unavailable, the main-thread fallback yields cooperatively.
 - Pulls CouchDB changes from the last saved checkpoint, so routine checks ask only for remote documents that changed since the previous successful pull.
 - Pulls large pages of CouchDB changes for faster catch-up, then caches them locally in bounded chunks so the UI can stay responsive.
+- Reconstructs binary attachments from their encrypted chunks one piece at a time, so large PDFs do not fail when they span multiple CouchDB documents.
 - Lightweight remote checks run every 15 seconds by default on desktop and foreground mobile.
 - Heavier periodic configuration-folder fallback scans are throttled separately, so fast polling does not repeatedly walk plugin and settings files.
 - Remote changes apply in batches with recovery backups.

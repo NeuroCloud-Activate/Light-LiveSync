@@ -105,9 +105,31 @@ const largeFallbackResult = await largeFallbackClient.buildPushBundle({
   size: 420_000
 }, options);
 
+let largeBinaryFallbackYields = 0;
+const largeBinary = new Uint8Array(1_200_000);
+for (let index = 0; index < largeBinary.length; index += 1) {
+  largeBinary[index] = index % 251;
+}
+const largeBinaryFallbackClient = new OptionalSyncWorkerClient({
+  enabled: () => false,
+  scriptUrl: () => "unused-worker.js",
+  yieldToUi: async () => {
+    largeBinaryFallbackYields += 1;
+  },
+  log: () => {}
+});
+const largeBinaryFallbackResult = await largeBinaryFallbackClient.buildPushBundle({
+  path: "attachments/large.pdf",
+  content: largeBinary.buffer,
+  ctime: 5,
+  mtime: 6,
+  size: largeBinary.byteLength
+}, options);
+
 assert.equal(disabledYields, 1);
 assert.equal(unavailableYields, 1);
 assert.ok(largeFallbackYields > 1, `expected cooperative yields during a large main-thread fallback build, got ${largeFallbackYields}`);
+assert.ok(largeBinaryFallbackYields > 1, `expected cooperative yields during a large binary main-thread fallback build, got ${largeBinaryFallbackYields}`);
 assert.equal(disabledResult.fileDocument._id, "fallback.md");
 assert.equal(unavailableResult.fileDocument._id, "fallback.md");
 assert.equal(blobWorkerResult.fileDocument._id, "fallback.md");
@@ -116,6 +138,9 @@ assert.match(blobWorkerConstructedWith, /^blob:/);
 assert.equal(blobWorkerLogs.length, 0);
 assert.equal(largeFallbackResult.fileDocument._id, "large-fallback.md");
 assert.ok(largeFallbackResult.chunkDocuments.length > 1);
+assert.equal(largeBinaryFallbackResult.fileDocument._id, "attachments/large.pdf");
+assert.equal(largeBinaryFallbackResult.fileDocument.type, "newnote");
+assert.ok(largeBinaryFallbackResult.chunkDocuments.length > 8);
 assert.match(unavailableLogs.join(" "), /Background worker failed/);
 
 console.log(JSON.stringify({
@@ -125,8 +150,10 @@ console.log(JSON.stringify({
   blobWorkerSourceReads,
   blobWorkerStarted: /^blob:/.test(blobWorkerConstructedWith),
   largeFallbackYields,
+  largeBinaryFallbackYields,
   disabledChunks: disabledResult.chunkDocuments.length,
   unavailableChunks: unavailableResult.chunkDocuments.length,
   largeFallbackChunks: largeFallbackResult.chunkDocuments.length,
+  largeBinaryFallbackChunks: largeBinaryFallbackResult.chunkDocuments.length,
   fallbackLogged: /Background worker failed/.test(unavailableLogs.join(" "))
 }, null, 2));

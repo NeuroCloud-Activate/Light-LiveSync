@@ -19,6 +19,7 @@ assert.equal(shouldSyncVaultPath(".obsidian/community-plugins.json", options), t
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/data.json", options), true);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/manifest.json", options), true);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/main.js", options), true);
+assert.equal(shouldSyncVaultPath("PDFs/example.pdf", options), true);
 
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/data.json", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/data.json.tmp", options), false);
@@ -44,6 +45,7 @@ assert.equal(shouldScanVaultFolder(".trash", options), false);
 assert.equal(isTextSyncPath("Daily.md"), true);
 assert.equal(isTextSyncPath("Board.canvas"), true);
 assert.equal(isTextSyncPath("View.base"), true);
+assert.equal(isTextSyncPath("PDFs/example.pdf"), false);
 assert.equal(isTextSyncPath("image.png"), false);
 
 console.log(JSON.stringify({
@@ -51,5 +53,6 @@ console.log(JSON.stringify({
   syncsVaultConfig: true,
   excludesOwnVolatileState: true,
   excludesGeneratedFolders: true,
+  syncsPdfAttachments: true,
   baseFilesAreText: true
 }, null, 2));

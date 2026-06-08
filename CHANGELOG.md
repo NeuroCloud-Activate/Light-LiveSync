@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.48
+
+- Stops synced plugin settings files from forcing automatic community-plugin reloads on mobile.
+- Keeps automatic plugin reloads for actual plugin asset updates such as manifests, JavaScript bundles, and CSS files.
+
+## 0.1.47
+
+- Fixes multi-chunk binary reconstruction so PDFs and other large attachments are decoded chunk-by-chunk before being written to the vault.
+- Makes large binary upload preparation yield during chunk creation, reducing app pauses when attachments are prepared on the main thread.
+- Filters recently changed configuration/plugin fallback scans before queueing uploads, so unchanged files are skipped earlier and startup queues stay smaller.
+
 ## 0.1.46
 
 - Lowers normal desktop CouchDB checkpoint polling to 15 seconds to improve cross-device pickup time.

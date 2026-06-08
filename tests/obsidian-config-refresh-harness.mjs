@@ -9,7 +9,9 @@ const plan = planObsidianConfigRefresh(
     ".obsidian/plugins/calendar/data.json",
     ".obsidian/plugins/tasks/manifest.json",
     ".obsidian/plugins/tasks/main.js",
+    ".obsidian/plugins/tasks/sync-worker.js",
     ".obsidian/plugins/light-livesync/main.js",
+    ".obsidian/plugins/light-livesync/data.json",
     "notes/plain.md"
   ],
   ".obsidian",
@@ -18,13 +20,14 @@ const plan = planObsidianConfigRefresh(
 
 assert.equal(plan.communityPluginsChanged, true);
 assert.deepEqual(plan.appSettingsChanged, [".obsidian/app.json", ".obsidian/appearance.json"]);
-assert.deepEqual(plan.pluginsToReload, ["calendar", "tasks"]);
+assert.deepEqual(plan.pluginsToReload, ["tasks"]);
 assert.equal(plan.ownPluginChanged, true);
 
 const customConfigPlan = planObsidianConfigRefresh(
   [
     "config/community-plugins.json",
     "config/plugins/ai-helper/custom-settings.json",
+    "config/plugins/ai-helper/mobile.css",
     "config/plugins/light-livesync/data.json",
     "config/hotkeys.json"
   ],
@@ -35,12 +38,28 @@ const customConfigPlan = planObsidianConfigRefresh(
 assert.equal(customConfigPlan.communityPluginsChanged, true);
 assert.deepEqual(customConfigPlan.appSettingsChanged, ["config/hotkeys.json"]);
 assert.deepEqual(customConfigPlan.pluginsToReload, ["ai-helper"]);
-assert.equal(customConfigPlan.ownPluginChanged, true);
+assert.equal(customConfigPlan.ownPluginChanged, false);
+
+const settingsOnlyPlan = planObsidianConfigRefresh(
+  [
+    ".obsidian/plugins/calendar/data.json",
+    ".obsidian/plugins/tasks/settings.json",
+    ".obsidian/plugins/tasks/nested/extra.js"
+  ],
+  ".obsidian",
+  "light-livesync"
+);
+
+assert.equal(settingsOnlyPlan.communityPluginsChanged, false);
+assert.deepEqual(settingsOnlyPlan.appSettingsChanged, []);
+assert.deepEqual(settingsOnlyPlan.pluginsToReload, []);
+assert.equal(settingsOnlyPlan.ownPluginChanged, false);
 
 console.log(JSON.stringify({
   ok: true,
   communityPluginsChanged: plan.communityPluginsChanged,
   pluginsToReload: plan.pluginsToReload,
   appSettingsChanged: plan.appSettingsChanged,
-  ownPluginChanged: plan.ownPluginChanged
+  ownPluginChanged: plan.ownPluginChanged,
+  settingsOnlyDoesNotReload: settingsOnlyPlan.pluginsToReload.length === 0
 }, null, 2));

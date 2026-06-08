@@ -15,6 +15,15 @@ function uniqueSorted(values: Iterable<string>): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
+function isReloadablePluginAsset(pluginPath: string): boolean {
+  if (pluginPath.includes("/")) {
+    return false;
+  }
+  return pluginPath === "manifest.json" ||
+    pluginPath.endsWith(".js") ||
+    pluginPath.endsWith(".css");
+}
+
 export function planObsidianConfigRefresh(
   changedPaths: string[],
   configDir: string,
@@ -53,16 +62,10 @@ export function planObsidianConfigRefresh(
         continue;
       }
       if (pluginId === ownPluginId) {
-        ownPluginChanged = true;
+        ownPluginChanged = isReloadablePluginAsset(pluginPath) || ownPluginChanged;
         continue;
       }
-      if (
-        pluginPath === "manifest.json" ||
-        pluginPath === "main.js" ||
-        pluginPath === "styles.css" ||
-        pluginPath === "data.json" ||
-        pluginPath.endsWith(".json")
-      ) {
+      if (isReloadablePluginAsset(pluginPath)) {
         pluginsToReload.add(pluginId);
       }
       continue;

@@ -10,7 +10,7 @@ const ENCRYPTED_META_PREFIX = "/\\:";
 const SALT_OF_ID = "a83hrf7f\u0003y7sa8g31";
 const SEED_MURMURHASH = 0x12345678;
 const DEFAULT_TEXT_CHUNK_SIZE = 16 * 1024;
-const DEFAULT_BINARY_CHUNK_SIZE = 100 * 1024;
+const DEFAULT_BINARY_CHUNK_SIZE = 96 * 1024;
 
 export type LocalFileSnapshot = {
   path: string;
@@ -233,18 +233,6 @@ function splitTextByLineEndings(content: string): string[] {
   return lines;
 }
 
-function splitBinaryIntoLiveSyncPieces(content: ArrayBuffer, maxSize = DEFAULT_BINARY_CHUNK_SIZE): string[] {
-  const bytes = new Uint8Array(content);
-  if (bytes.length === 0) {
-    return [];
-  }
-  const pieces: string[] = [];
-  for (let offset = 0; offset < bytes.length; offset += maxSize) {
-    pieces.push(bytesToBase64(bytes.slice(offset, offset + maxSize)));
-  }
-  return pieces;
-}
-
 async function maybeEncryptData(data: string, options: LiveSyncBuildOptions): Promise<string> {
   if (!options.encrypt) {
     return data;
@@ -298,11 +286,8 @@ export async function buildLiveSyncPushBundle(
   const chunkDocuments = new Map<string, LiveSyncDocument>();
   const children: string[] = [];
   const isBinary = typeof snapshot.content !== "string";
-  const pieces = typeof snapshot.content === "string"
-    ? splitTextIntoLiveSyncPieces(snapshot.content)
-    : splitBinaryIntoLiveSyncPieces(snapshot.content);
 
-  for (const [index, piece] of pieces.entries()) {
+  const addPiece = async (piece: string, index: number, totalPieces: number): Promise<void> => {
     const chunkId = ID_PREFIX_CHUNK + await computePieceHash(piece, options);
     children.push(chunkId);
     if (!chunkDocuments.has(chunkId)) {
@@ -313,7 +298,22 @@ export async function buildLiveSyncPushBundle(
         ...(options.encrypt ? { e_: true } : {})
       });
     }
-    await yieldDuringBuild(runtime, index + 1, pieces.length);
+    await yieldDuringBuild(runtime, index + 1, totalPieces);
+  };
+
+  if (typeof snapshot.content === "string") {
+    const pieces = splitTextIntoLiveSyncPieces(snapshot.content);
+    for (const [index, piece] of pieces.entries()) {
+      await addPiece(piece, index, pieces.length);
+    }
+  } else {
+    const bytes = new Uint8Array(snapshot.content);
+    const totalPieces = Math.ceil(bytes.length / DEFAULT_BINARY_CHUNK_SIZE);
+    for (let index = 0; index < totalPieces; index += 1) {
+      const offset = index * DEFAULT_BINARY_CHUNK_SIZE;
+      const piece = bytesToBase64(bytes.slice(offset, offset + DEFAULT_BINARY_CHUNK_SIZE));
+      await addPiece(piece, index, totalPieces);
+    }
   }
 
   const metadata = await maybeEncryptMetadata(snapshot, children, options);
