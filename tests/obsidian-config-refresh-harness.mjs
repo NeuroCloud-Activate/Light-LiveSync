@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   planObsidianConfigRefresh,
   shouldAutoApplyPluginRefresh,
+  shouldDeferMobileConfigApply,
   shouldPromptForAppReload
 } from "../src/obsidian-config-refresh.ts";
 
@@ -65,6 +66,13 @@ assert.equal(settingsOnlyPlan.ownPluginChanged, false);
 assert.equal(shouldAutoApplyPluginRefresh(settingsOnlyPlan, false), false);
 assert.equal(shouldPromptForAppReload(settingsOnlyPlan, true), false);
 
+assert.equal(shouldDeferMobileConfigApply(".obsidian/app.json", ".obsidian", "light-livesync"), true);
+assert.equal(shouldDeferMobileConfigApply(".obsidian/workspace-mobile.json", ".obsidian", "light-livesync"), true);
+assert.equal(shouldDeferMobileConfigApply(".obsidian/community-plugins.json", ".obsidian", "light-livesync"), true);
+assert.equal(shouldDeferMobileConfigApply(".obsidian/plugins/tasks/main.js", ".obsidian", "light-livesync"), true);
+assert.equal(shouldDeferMobileConfigApply(".obsidian/plugins/calendar/data.json", ".obsidian", "light-livesync"), false);
+assert.equal(shouldDeferMobileConfigApply("notes/plain.md", ".obsidian", "light-livesync"), false);
+
 console.log(JSON.stringify({
   ok: true,
   communityPluginsChanged: plan.communityPluginsChanged,
@@ -72,6 +80,7 @@ console.log(JSON.stringify({
   appSettingsChanged: plan.appSettingsChanged,
   ownPluginChanged: plan.ownPluginChanged,
   settingsOnlyDoesNotReload: settingsOnlyPlan.pluginsToReload.length === 0,
+  mobileAppSettingsDeferred: shouldDeferMobileConfigApply(".obsidian/app.json", ".obsidian", "light-livesync"),
   mobileAutoReloadPaused: !shouldAutoApplyPluginRefresh(plan, true),
   reloadPromptShown: shouldPromptForAppReload(plan, true)
 }, null, 2));

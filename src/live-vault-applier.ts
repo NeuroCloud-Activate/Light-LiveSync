@@ -28,6 +28,7 @@ type LiveVaultApplyOptions = {
   conflictFolder: string;
   shouldApplyPath?(path: string): boolean;
   deferApplyPath?(path: string): string | undefined;
+  markAppliedIds?(ids: string[]): Promise<void>;
   yieldToUi?(): Promise<void>;
 };
 
@@ -402,7 +403,16 @@ export async function applyReadyPreviewsToLiveVault(
   for (const preview of previews) {
     try {
       await options.yieldToUi?.();
+      const appliedBefore = result.appliedIds.length;
+      const skippedBefore = result.skippedIds.length;
       await applyPreview(vault, preview, options, result);
+      const newIds = [
+        ...result.appliedIds.slice(appliedBefore),
+        ...result.skippedIds.slice(skippedBefore)
+      ];
+      if (newIds.length > 0) {
+        await options.markAppliedIds?.(newIds);
+      }
       await options.yieldToUi?.();
     } catch (error) {
       result.failed++;

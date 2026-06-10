@@ -3,6 +3,7 @@ import { Modal, Setting, type App } from "obsidian";
 export type PluginReloadPromptDetails = {
   changedPluginCount: number;
   communityPluginListChanged: boolean;
+  appSettingsChangedCount?: number;
   ownPluginChanged: boolean;
   pendingApply?: boolean;
 };
@@ -28,13 +29,16 @@ export class PluginReloadPromptModal extends Modal {
     contentEl.createEl("h2", { text: "Reload needed" });
     contentEl.createEl("p", {
       text: this.details.pendingApply
-        ? "Synced plugin changes are waiting. Applying them can reload the mobile app, so Light-LiveSync will wait for your choice."
-        : "Synced plugin changes are ready. Reloading applies the updated plugin list or plugin bundle, but Light-LiveSync will wait for your choice."
+        ? "Synced configuration changes are waiting. Applying them can reload the mobile app, so Light-LiveSync will wait for your choice."
+        : "Synced configuration changes are ready. Reloading applies the updated plugin list, app settings, or plugin bundle, but Light-LiveSync will wait for your choice."
     });
 
     const details = [];
     if (this.details.communityPluginListChanged) {
       details.push("community plugin list");
+    }
+    if ((this.details.appSettingsChangedCount ?? 0) > 0) {
+      details.push(`${this.details.appSettingsChangedCount} app setting file${this.details.appSettingsChangedCount === 1 ? "" : "s"}`);
     }
     if (this.details.changedPluginCount > 0) {
       details.push(`${this.details.changedPluginCount} plugin bundle${this.details.changedPluginCount === 1 ? "" : "s"}`);

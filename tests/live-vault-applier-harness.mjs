@@ -164,6 +164,34 @@ assert.equal(configResult.skipped, 0);
 assert.deepEqual(configResult.changedPaths, [".obsidian/app.json"]);
 assert.equal(vault.files.get(".obsidian/app.json"), "{}");
 
+const deferredAppSettingsResult = await applyReadyPreviewsToLiveVault(
+  vault,
+  [
+    {
+      id: "doc-deferred-app-settings",
+      rev: "1-deferred-app-settings",
+      path: ".obsidian/workspace-mobile.json",
+      status: "ready",
+      contentType: "text",
+      chunkCount: 1,
+      byteLength: 12,
+      content: "{\"tabs\":[]}"
+    }
+  ],
+  {
+    configDir: ".obsidian",
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts",
+    deferApplyPath: (path) => path === ".obsidian/workspace-mobile.json"
+      ? "Waiting for approval before applying Obsidian configuration that can reload the mobile app."
+      : undefined
+  }
+);
+
+assert.equal(deferredAppSettingsResult.waiting, 1);
+assert.equal(deferredAppSettingsResult.applied, 0);
+assert.deepEqual(deferredAppSettingsResult.changedPaths, []);
+assert.equal(vault.files.has(".obsidian/workspace-mobile.json"), false);
+
 vault.files.set(".obsidian/plugins/calendar/manifest.json", "{\"name\":\"Calendar\"}");
 const deferredPluginAssetResult = await applyReadyPreviewsToLiveVault(
   vault,
@@ -183,7 +211,7 @@ const deferredPluginAssetResult = await applyReadyPreviewsToLiveVault(
     configDir: ".obsidian",
     conflictFolder: ".obsidian/plugins/light-livesync/conflicts",
     deferApplyPath: (path) => path.endsWith("/manifest.json")
-      ? "Waiting for approval before applying plugin files that can reload the mobile app."
+      ? "Waiting for approval before applying Obsidian configuration that can reload the mobile app."
       : undefined
   }
 );
@@ -449,6 +477,7 @@ assert.equal(binaryResult.applied, 1);
 assert.deepEqual([...new Uint8Array(vault.files.get("assets/a.bin"))], [1, 2, 3, 4]);
 assert.equal(applyYields, 2);
 
+const immediatelyMarkedIds = [];
 const batchResult = await applyReadyPreviewsToLiveVault(
   vault,
   [
@@ -485,11 +514,15 @@ const batchResult = await applyReadyPreviewsToLiveVault(
   ],
   {
     configDir: ".obsidian",
-    conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts",
+    markAppliedIds: async (ids) => {
+      immediatelyMarkedIds.push(...ids);
+    }
   }
 );
 
 assert.equal(batchResult.applied, 3);
+assert.deepEqual(immediatelyMarkedIds, ["doc-batch-1", "doc-batch-2", "doc-batch-3"]);
 assert.equal(vault.files.get("batch/one.md"), "one");
 assert.equal(vault.files.get("batch/two.md"), "two");
 assert.equal(vault.files.get("batch/three.md"), "three");
@@ -500,6 +533,7 @@ console.log(JSON.stringify({
   backups: writeResult.backedUp + deleteResult.backedUp,
   conflicts: writeResult.conflicted + deleteResult.conflicted,
   configSynced: vault.files.get(".obsidian/app.json") === "{}",
+  deferredAppSettingsWaiting: deferredAppSettingsResult.waiting,
   deferredPluginAssetWaiting: deferredPluginAssetResult.waiting,
   adapterOnlyFilesSync: adapterOnlyResult.failed === 0,
   remoteTextDeleteMerged: remoteTextDeleteResult.merged,
@@ -510,5 +544,6 @@ console.log(JSON.stringify({
   waitingStaysQueued: skipAndWaitResult.waiting,
   binary: true,
   batchApplied: batchResult.applied,
+  immediatelyMarkedIds: immediatelyMarkedIds.length,
   applyYields
 }, null, 2));

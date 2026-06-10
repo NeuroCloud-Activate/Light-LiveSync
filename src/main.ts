@@ -3,7 +3,7 @@ import { decryptCredentialPayload, encryptCredentialPayload } from "./credential
 import { DocumentReconstructor, type ReconstructionBatchSummary } from "./document-reconstructor";
 import { applyReadyPreviewsToLiveVault, type LiveVaultApplyResult } from "./live-vault-applier";
 import { exportReadyPreviews } from "./preview-exporter";
-import { planObsidianConfigRefresh, shouldAutoApplyPluginRefresh, shouldPromptForAppReload } from "./obsidian-config-refresh";
+import { planObsidianConfigRefresh, shouldAutoApplyPluginRefresh, shouldDeferMobileConfigApply, shouldPromptForAppReload } from "./obsidian-config-refresh";
 import { PluginReloadPromptModal } from "./plugin-reload-prompt-modal";
 import { ServerCredentialsModal } from "./server-credentials-modal";
 import { applyReadyPreviewsToStaging, type StagingApplyResult } from "./staging-applier";
@@ -131,6 +131,12 @@ function hasLiveApplyActivity(result: LiveVaultApplyResult): boolean {
 
 function applyReasonSummary(label: string, reasons: string[]): string {
   return reasons.length > 0 ? ` ${label}: ${reasons.join("; ")}` : "";
+}
+
+function pathListSummary(paths: string[], limit = 12): string {
+  const shown = paths.slice(0, limit);
+  const remaining = paths.length - shown.length;
+  return `${shown.join("; ")}${remaining > 0 ? `; and ${remaining} more` : ""}`;
 }
 
 function hasRecordKey(record: Record<string, unknown>, key: string): boolean {
@@ -1483,16 +1489,32 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     context: PullOperationContext,
     limit: number
   ): Promise<LiveVaultApplyResult> {
-    const summary = await context.reconstructor.previewPending(limit);
+    const previewLimit = Platform.isMobile ? Math.max(limit, 250) : limit;
+    const summary = await context.reconstructor.previewPending(previewLimit);
+    const previews = this.orderPreviewsForMobileApply(summary.previews);
     await this.updateLocalPreview(summary);
-    const result = await this.withSuppressedVaultEvents(() => applyReadyPreviewsToLiveVault(this.app.vault, summary.previews, {
+    const markedApplyIds = new Set<string>();
+    const result = await this.withSuppressedVaultEvents(() => applyReadyPreviewsToLiveVault(this.app.vault, previews, {
       configDir: this.app.vault.configDir,
       conflictFolder: this.conflictFolder(),
       shouldApplyPath: (path) => this.shouldSyncPath(path),
       deferApplyPath: (path) => this.deferMobileReloadSensitiveApplyPath(path),
+      markAppliedIds: async (ids) => {
+        const nextIds = ids.filter((id) => !markedApplyIds.has(id));
+        if (nextIds.length === 0) {
+          return;
+        }
+        await context.store.markApplied(nextIds);
+        for (const id of nextIds) {
+          markedApplyIds.add(id);
+        }
+      },
       yieldToUi: () => this.yieldToUi()
     }));
-    await context.store.markApplied([...result.appliedIds, ...result.skippedIds]);
+    const remainingAppliedIds = [...result.appliedIds, ...result.skippedIds].filter((id) => !markedApplyIds.has(id));
+    if (remainingAppliedIds.length > 0) {
+      await context.store.markApplied(remainingAppliedIds);
+    }
     if (result.preservedLocalSettingsPaths.length > 0) {
       await context.store.queueLocalChanges(result.preservedLocalSettingsPaths.map((path) => ({
         path,
@@ -1509,6 +1531,28 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     return result;
   }
 
+  private orderPreviewsForMobileApply(previews: ReconstructionBatchSummary["previews"]): ReconstructionBatchSummary["previews"] {
+    if (!Platform.isMobile) {
+      return previews;
+    }
+    const normal: ReconstructionBatchSummary["previews"] = [];
+    const reloadSensitive: ReconstructionBatchSummary["previews"] = [];
+    for (const preview of previews) {
+      const normalizedPath = normalizePath(preview.path);
+      if (shouldDeferMobileConfigApply(normalizedPath, this.app.vault.configDir, this.manifest.id)) {
+        reloadSensitive.push(preview);
+      } else {
+        normal.push(preview);
+      }
+    }
+    if (normal.length > 0 && reloadSensitive.length > 0) {
+      this.log(
+        `Applying ${normal.length} ordinary remote update${normal.length === 1 ? "" : "s"} before ${reloadSensitive.length} mobile reload-sensitive configuration update${reloadSensitive.length === 1 ? "" : "s"}.`
+      );
+    }
+    return [...normal, ...reloadSensitive];
+  }
+
   private deferMobileReloadSensitiveApplyPath(path: string): string | undefined {
     const normalized = normalizePath(path);
     if (!Platform.isMobile) {
@@ -1517,12 +1561,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (this.approvedMobileReloadSensitiveApplyPaths.has(normalized)) {
       return undefined;
     }
-    const plan = planObsidianConfigRefresh([normalized], this.app.vault.configDir, this.manifest.id);
-    if (!shouldPromptForAppReload(plan, true)) {
+    if (!shouldDeferMobileConfigApply(normalized, this.app.vault.configDir, this.manifest.id)) {
       return undefined;
     }
     this.pendingMobileReloadSensitiveApplyPaths.add(normalized);
-    return "Waiting for approval before applying plugin files that can reload the mobile app.";
+    return "Waiting for approval before applying Obsidian configuration that can reload the mobile app.";
   }
 
   private async promptForDeferredMobileReloadSensitiveApply(): Promise<void> {
@@ -1531,10 +1574,13 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
     const paths = [...this.pendingMobileReloadSensitiveApplyPaths].sort((left, right) => left.localeCompare(right));
     const plan = planObsidianConfigRefresh(paths, this.app.vault.configDir, this.manifest.id);
+    this.log(
+      `Mobile paused ${paths.length} synced Obsidian configuration update${paths.length === 1 ? "" : "s"} before writing files that can reload the app: ${pathListSummary(paths)}.`
+    );
     const applyNow = await this.promptForPluginReload(plan, paths, true);
     if (!applyNow) {
       this.log(
-        `Paused ${paths.length} synced plugin/config update${paths.length === 1 ? "" : "s"} on mobile because applying them can reload the app. Notes, attachments, and settings data can continue syncing.`
+        `Paused ${paths.length} synced Obsidian configuration update${paths.length === 1 ? "" : "s"} on mobile because applying them can reload the app. Notes, attachments, and plugin settings data can continue syncing.`
       );
       return;
     }
@@ -1570,7 +1616,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     } else if (plan.communityPluginsChanged || plan.pluginsToReload.length > 0) {
       this.log("Synced community plugin changes were written. Automatic plugin reload is paused on mobile to avoid app reload loops.");
     }
-    if (Platform.isMobile && this.mobileReloadAfterApprovedApply && shouldPromptForAppReload(plan, true)) {
+    if (Platform.isMobile && this.mobileReloadAfterApprovedApply && hasWork) {
       this.mobileReloadAfterApprovedApply = false;
       this.approvedMobileReloadSensitiveApplyPaths.clear();
       this.log("Reloading the app after applying approved synced plugin/config updates.");
@@ -1612,6 +1658,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     const reloadNow = await new PluginReloadPromptModal(this.app, {
       changedPluginCount: plan.pluginsToReload.length,
       communityPluginListChanged: plan.communityPluginsChanged,
+      appSettingsChangedCount: plan.appSettingsChanged.length,
       ownPluginChanged: plan.ownPluginChanged,
       pendingApply
     }).openAndWait();

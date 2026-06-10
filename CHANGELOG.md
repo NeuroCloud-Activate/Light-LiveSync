@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.54
+
+- Broadens the mobile reload guard to pause top-level `.obsidian` app setting files before they are written on iPhone or iPad.
+- Keeps ordinary files and plugin `data.json` settings applying automatically, while plugin bundles, community plugin enablement, and app settings wait for explicit mobile approval.
+- Reorders mobile apply batches so ordinary vault updates apply before reload-sensitive Obsidian configuration updates.
+- Marks successfully applied remote files immediately during live apply, reducing the chance that a mobile reload strands the same pending files in the local apply queue.
+- Adds tests for mobile app-setting deferral so pending configuration updates are not marked applied, skipped, or lost.
+
 ## 0.1.53
 
 - Prevents mobile reload loops by deferring synced community-plugin enablement and plugin bundle writes until the user approves applying them.

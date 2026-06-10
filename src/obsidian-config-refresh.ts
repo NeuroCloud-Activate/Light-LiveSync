@@ -24,6 +24,36 @@ function isReloadablePluginAsset(pluginPath: string): boolean {
     pluginPath.endsWith(".css");
 }
 
+export function shouldDeferMobileConfigApply(
+  path: string,
+  configDir: string,
+  _ownPluginId: string
+): boolean {
+  const normalizedConfigDir = normalizePathPart(configDir);
+  const normalizedPath = normalizePathPart(path);
+  if (!normalizedConfigDir || !normalizedPath.startsWith(`${normalizedConfigDir}/`)) {
+    return false;
+  }
+
+  if (normalizedPath === `${normalizedConfigDir}/community-plugins.json`) {
+    return true;
+  }
+
+  const pluginsFolder = `${normalizedConfigDir}/plugins`;
+  if (normalizedPath.startsWith(`${pluginsFolder}/`)) {
+    const rest = normalizedPath.slice(`${pluginsFolder}/`.length);
+    const [pluginId, ...parts] = rest.split("/");
+    const pluginPath = parts.join("/");
+    if (!pluginId || !pluginPath) {
+      return false;
+    }
+    return isReloadablePluginAsset(pluginPath);
+  }
+
+  const relativeConfigPath = normalizedPath.slice(`${normalizedConfigDir}/`.length);
+  return !relativeConfigPath.includes("/") && relativeConfigPath.endsWith(".json");
+}
+
 export function planObsidianConfigRefresh(
   changedPaths: string[],
   configDir: string,
