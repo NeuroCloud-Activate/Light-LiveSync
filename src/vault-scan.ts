@@ -36,11 +36,6 @@ const LOCAL_ONLY_FOLDER_NAMES = new Set([
   "light-livesync-main"
 ]);
 
-const LOW_INTENSITY_CONFIG_FOLDERS = new Set([
-  "plugins",
-  "snippets"
-]);
-
 const TOP_LEVEL_RUNTIME_CONFIG_FILES = new Set([
   "app.json",
   "appearance.json",
@@ -119,9 +114,9 @@ function isRuntimeObsidianConfigFile(path: string, configDir: string): boolean {
     /^workspace.*\.json$/i.test(relativePath);
 }
 
-function isLikelyManualConfigSyncFile(path: string, configDir: string): boolean {
+function isUserConfigurableObsidianSettingFile(path: string, options: VaultSyncPathOptions): boolean {
   const cleaned = cleanPath(path);
-  const normalizedConfigDir = cleanPath(configDir);
+  const normalizedConfigDir = cleanPath(options.configDir);
   if (!normalizedConfigDir || !cleaned.startsWith(`${normalizedConfigDir}/`)) {
     return true;
   }
@@ -129,22 +124,36 @@ function isLikelyManualConfigSyncFile(path: string, configDir: string): boolean 
     return false;
   }
 
-  const relativePath = cleaned.slice(`${normalizedConfigDir}/`.length);
-  const parts = relativePath.split("/");
-  const filename = parts.at(-1) ?? "";
-  if (!filename || NOISY_CONFIG_FILE_PATTERNS.some((pattern) => pattern.test(filename))) {
+  const relativeConfigPath = cleaned.slice(`${normalizedConfigDir}/`.length);
+  const configParts = relativeConfigPath.split("/");
+  const configFilename = configParts.at(-1) ?? "";
+  if (configParts[0]?.toLowerCase() === "snippets") {
+    return configParts.length === 2 &&
+      configFilename.toLowerCase().endsWith(".css") &&
+      !NOISY_CONFIG_FILE_PATTERNS.some((pattern) => pattern.test(configFilename));
+  }
+
+  const pluginsDir = `${normalizedConfigDir}/plugins`;
+  if (!cleaned.startsWith(`${pluginsDir}/`)) {
     return false;
   }
 
-  if (parts[0]?.toLowerCase() === "snippets") {
-    return parts.length === 2 && filename.toLowerCase().endsWith(".css");
+  const relativePath = cleaned.slice(`${pluginsDir}/`.length);
+  const parts = relativePath.split("/");
+  const filename = parts.at(-1) ?? "";
+  const pluginId = parts[0] ?? "";
+  if (!pluginId || pluginId.toLowerCase() === cleanPath(options.pluginId).toLowerCase()) {
+    return false;
+  }
+  if (
+    parts.length !== 2 ||
+    !filename.toLowerCase().endsWith(".json") ||
+    NOISY_CONFIG_FILE_PATTERNS.some((pattern) => pattern.test(filename))
+  ) {
+    return false;
   }
 
-  if (parts[0]?.toLowerCase() === "plugins") {
-    return parts.length === 3 && filename.toLowerCase().endsWith(".json");
-  }
-
-  return false;
+  return true;
 }
 
 function localOnlyFolders(options: VaultSyncPathOptions): string[] {
@@ -194,15 +203,11 @@ export function shouldScanLowIntensityConfigFolder(path: string, options: VaultS
 
   const parts = relativePath.split("/");
   if (parts.length === 1) {
-    return LOW_INTENSITY_CONFIG_FOLDERS.has(parts[0].toLowerCase());
+    return parts[0].toLowerCase() === "plugins" || parts[0].toLowerCase() === "snippets";
   }
 
   if (parts[0].toLowerCase() === "plugins") {
     return parts.length === 2;
-  }
-
-  if (parts[0].toLowerCase() === "snippets") {
-    return parts.length === 1;
   }
 
   return false;
@@ -221,7 +226,7 @@ export function shouldSyncVaultPath(path: string, options: VaultSyncPathOptions)
   if (!shouldScanVaultFolder(cleaned.split("/").slice(0, -1).join("/"), options)) {
     return false;
   }
-  if (!isLikelyManualConfigSyncFile(cleaned, options.configDir)) {
+  if (!isUserConfigurableObsidianSettingFile(cleaned, options)) {
     return false;
   }
   if (isPluginBundleAsset(cleaned, options.configDir)) {

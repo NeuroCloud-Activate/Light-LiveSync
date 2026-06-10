@@ -14,13 +14,13 @@ const options = {
   conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
 };
 
-assert.equal(shouldSyncVaultPath("Notes/hello.md", options), true);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/data.json", options), true);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/settings.json", options), true);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/custom-settings.json", options), true);
-assert.equal(shouldSyncVaultPath(".obsidian/snippets/readable.css", options), true);
-assert.equal(shouldSyncVaultPath("PDFs/example.pdf", options), true);
 
+assert.equal(shouldSyncVaultPath("Notes/hello.md", options), true);
+assert.equal(shouldSyncVaultPath("PDFs/example.pdf", options), true);
+assert.equal(shouldSyncVaultPath(".obsidian/snippets/readable.css", options), true);
 assert.equal(shouldSyncVaultPath(".obsidian/app.json", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/appearance.json", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/community-plugins.json", options), false);
@@ -73,6 +73,7 @@ assert.equal(isTextSyncPath("image.png"), false);
 
 console.log(JSON.stringify({
   ok: true,
+  syncsVaultFiles: true,
   syncsPluginSettings: true,
   excludesRuntimeConfig: true,
   excludesOwnVolatileState: true,

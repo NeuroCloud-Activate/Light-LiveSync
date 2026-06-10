@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.60
+
+- Keeps syncing ordinary vault files, notes, attachments, PDFs, and normal folders while tightening only the `.obsidian` configuration filter.
+- Limits `.obsidian` syncing to user-facing plugin settings JSON files and CSS snippets.
+- Excludes noisy/non-user `.obsidian` files such as runtime workspace state, app/community plugin runtime config, logs, caches, history, temporary files, nested generated plugin state, plugin bundles, and Light-LiveSync's own local state.
+
 ## 0.1.59
 
 - Emergency desktop stability release: caps automatic remote apply to 3 files per pass so sync cannot write large bursts into the running vault.
