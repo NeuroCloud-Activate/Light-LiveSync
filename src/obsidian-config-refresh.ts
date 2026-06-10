@@ -1,6 +1,7 @@
 export type ObsidianConfigRefreshPlan = {
   communityPluginsChanged: boolean;
   appSettingsChanged: string[];
+  otherConfigChanged: string[];
   pluginsToReload: string[];
   ownPluginChanged: boolean;
 };
@@ -31,27 +32,8 @@ export function shouldDeferMobileConfigApply(
 ): boolean {
   const normalizedConfigDir = normalizePathPart(configDir);
   const normalizedPath = normalizePathPart(path);
-  if (!normalizedConfigDir || !normalizedPath.startsWith(`${normalizedConfigDir}/`)) {
-    return false;
-  }
-
-  if (normalizedPath === `${normalizedConfigDir}/community-plugins.json`) {
-    return true;
-  }
-
-  const pluginsFolder = `${normalizedConfigDir}/plugins`;
-  if (normalizedPath.startsWith(`${pluginsFolder}/`)) {
-    const rest = normalizedPath.slice(`${pluginsFolder}/`.length);
-    const [pluginId, ...parts] = rest.split("/");
-    const pluginPath = parts.join("/");
-    if (!pluginId || !pluginPath) {
-      return false;
-    }
-    return isReloadablePluginAsset(pluginPath);
-  }
-
-  const relativeConfigPath = normalizedPath.slice(`${normalizedConfigDir}/`.length);
-  return !relativeConfigPath.includes("/") && relativeConfigPath.endsWith(".json");
+  return !!normalizedConfigDir &&
+    (normalizedPath === normalizedConfigDir || normalizedPath.startsWith(`${normalizedConfigDir}/`));
 }
 
 export function planObsidianConfigRefresh(
@@ -64,6 +46,7 @@ export function planObsidianConfigRefresh(
     return {
       communityPluginsChanged: false,
       appSettingsChanged: [],
+      otherConfigChanged: [],
       pluginsToReload: [],
       ownPluginChanged: false
     };
@@ -71,6 +54,7 @@ export function planObsidianConfigRefresh(
   const pluginsFolder = `${normalizedConfigDir}/plugins`;
   const pluginsToReload = new Set<string>();
   const appSettingsChanged = new Set<string>();
+  const otherConfigChanged = new Set<string>();
   let communityPluginsChanged = false;
   let ownPluginChanged = false;
 
@@ -93,22 +77,30 @@ export function planObsidianConfigRefresh(
       }
       if (pluginId === ownPluginId) {
         ownPluginChanged = isReloadablePluginAsset(pluginPath) || ownPluginChanged;
+        if (!isReloadablePluginAsset(pluginPath)) {
+          otherConfigChanged.add(path);
+        }
         continue;
       }
       if (isReloadablePluginAsset(pluginPath)) {
         pluginsToReload.add(pluginId);
+      } else {
+        otherConfigChanged.add(path);
       }
       continue;
     }
 
     if (path.endsWith(".json")) {
       appSettingsChanged.add(path);
+    } else {
+      otherConfigChanged.add(path);
     }
   }
 
   return {
     communityPluginsChanged,
     appSettingsChanged: uniqueSorted(appSettingsChanged),
+    otherConfigChanged: uniqueSorted(otherConfigChanged),
     pluginsToReload: uniqueSorted(pluginsToReload),
     ownPluginChanged
   };

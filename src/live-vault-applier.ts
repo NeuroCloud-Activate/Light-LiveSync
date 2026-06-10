@@ -28,6 +28,7 @@ type LiveVaultApplyOptions = {
   conflictFolder: string;
   shouldApplyPath?(path: string): boolean;
   deferApplyPath?(path: string): string | undefined;
+  markAppliedBeforeApplyPath?(path: string): boolean;
   markAppliedIds?(ids: string[]): Promise<void>;
   yieldToUi?(): Promise<void>;
 };
@@ -333,7 +334,7 @@ async function applyReadyPreview(
 async function applyPreview(
   vault: LiveVaultTarget,
   preview: ReconstructedDocumentPreview,
-  options: Pick<LiveVaultApplyOptions, "configDir" | "shouldApplyPath" | "deferApplyPath">,
+  options: Pick<LiveVaultApplyOptions, "configDir" | "shouldApplyPath" | "deferApplyPath" | "markAppliedBeforeApplyPath" | "markAppliedIds">,
   result: MutableLiveVaultApplyResult
 ): Promise<void> {
   const targetPath = safeVaultPath(preview.path);
@@ -365,6 +366,9 @@ async function applyPreview(
     result.waiting++;
     recordReason(result.waitingReasons, targetPath, deferredReason);
     return;
+  }
+  if (options.markAppliedBeforeApplyPath?.(targetPath)) {
+    await options.markAppliedIds?.([preview.id]);
   }
 
   await ensureParentFolder(vault.adapter, targetPath);

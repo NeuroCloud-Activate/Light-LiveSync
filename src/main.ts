@@ -193,6 +193,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private pendingMobileReloadSensitiveApplyPaths = new Set<string>();
   private approvedMobileReloadSensitiveApplyPaths = new Set<string>();
   private mobileReloadAfterApprovedApply = false;
+  private lastMobileDeferredConfigApplyKey = "";
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -211,6 +212,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       readLocalFileInfo: (path) => this.readLocalFileInfo(path),
       readLocalFileSnapshot: (path) => this.readLocalFileSnapshot(path),
       buildLocalPushBundle: (snapshot, options) => this.buildLocalPushBundle(snapshot, options),
+      shouldAutoApplyPull: (databaseName) => this.shouldAutoApplyPull(databaseName),
       applyPulledChanges: (databaseName, client) => this.applyPulledChanges(databaseName, client),
       isNetworkLikelyOnline: () => this.isNetworkLikelyOnline(),
       yieldToUi: () => this.yieldToUi(),
@@ -325,8 +327,12 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       autoUnlockCredentials: true,
       credentialUnlockKey: loaded?.credentialUnlockKey ?? DEFAULT_SETTINGS.credentialUnlockKey,
       keepUnlockedDuringSession: true,
+      mobileApprovedConfigApplyPaths: Array.isArray(loaded?.mobileApprovedConfigApplyPaths)
+        ? loaded.mobileApprovedConfigApplyPaths.filter((path): path is string => typeof path === "string")
+        : DEFAULT_SETTINGS.mobileApprovedConfigApplyPaths,
       settingsTab: loaded?.settingsTab ?? DEFAULT_SETTINGS.settingsTab
     };
+    this.approvedMobileReloadSensitiveApplyPaths = new Set(this.settings.mobileApprovedConfigApplyPaths.map((path) => normalizePath(path)));
     if (loaded?.maxPushChangesPerSync === undefined || loaded.maxPushChangesPerSync <= 4) {
       this.settings.maxPushChangesPerSync = DEFAULT_SETTINGS.maxPushChangesPerSync;
     }
@@ -1433,6 +1439,42 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     };
   }
 
+  private async shouldAutoApplyPull(databaseName: string): Promise<boolean> {
+    if (!Platform.isMobile) {
+      return true;
+    }
+    const store = this.getLocalStore(databaseName);
+    const client = new CouchDbClient(this.getRuntimeSettings().couchDb);
+    const reconstructor = new DocumentReconstructor(store, this.documentTransformOptions(), {
+      yieldToUi: () => this.yieldToUi(),
+      loadMissingChunks: (ids) => this.loadAndCacheMissingChunks(store, client, ids)
+    });
+    const summary = await reconstructor.previewPending(Math.max(this.applyBatchLimit(), 250));
+    await this.updateLocalPreview(summary);
+    if (summary.previews.length === 0) {
+      return true;
+    }
+
+    const applyableNonConfig = summary.previews.some((preview) =>
+      !shouldDeferMobileConfigApply(normalizePath(preview.path), this.app.vault.configDir, this.manifest.id)
+    );
+    const approvedConfig = summary.previews.some((preview) => {
+      const path = normalizePath(preview.path);
+      return shouldDeferMobileConfigApply(path, this.app.vault.configDir, this.manifest.id) &&
+        this.approvedMobileReloadSensitiveApplyPaths.has(path);
+    });
+    if (applyableNonConfig || approvedConfig) {
+      return true;
+    }
+
+    for (const preview of summary.previews) {
+      this.pendingMobileReloadSensitiveApplyPaths.add(normalizePath(preview.path));
+    }
+    await this.promptForDeferredMobileReloadSensitiveApply();
+    await this.updateLocalQueue(await store.getSummary());
+    return false;
+  }
+
   private async applyPulledChanges(databaseName: string, client?: SyncRemoteClient): Promise<LiveVaultApplyResult> {
     const store = this.getLocalStore(databaseName);
     const remoteClient = client ?? new CouchDbClient(this.getRuntimeSettings().couchDb);
@@ -1499,6 +1541,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       conflictFolder: this.conflictFolder(),
       shouldApplyPath: (path) => this.shouldSyncPath(path),
       deferApplyPath: (path) => this.deferMobileReloadSensitiveApplyPath(path),
+      markAppliedBeforeApplyPath: (path) => this.shouldPreMarkApprovedMobileConfigApply(path),
       markAppliedIds: async (ids) => {
         const nextIds = ids.filter((id) => !markedApplyIds.has(id));
         if (nextIds.length === 0) {
@@ -1568,15 +1611,26 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     return "Waiting for approval before applying Obsidian configuration that can reload the mobile app.";
   }
 
+  private shouldPreMarkApprovedMobileConfigApply(path: string): boolean {
+    const normalized = normalizePath(path);
+    return Platform.isMobile &&
+      this.approvedMobileReloadSensitiveApplyPaths.has(normalized) &&
+      shouldDeferMobileConfigApply(normalized, this.app.vault.configDir, this.manifest.id);
+  }
+
   private async promptForDeferredMobileReloadSensitiveApply(): Promise<void> {
     if (!Platform.isMobile || this.pendingMobileReloadSensitiveApplyPaths.size === 0) {
       return;
     }
     const paths = [...this.pendingMobileReloadSensitiveApplyPaths].sort((left, right) => left.localeCompare(right));
     const plan = planObsidianConfigRefresh(paths, this.app.vault.configDir, this.manifest.id);
-    this.log(
-      `Mobile paused ${paths.length} synced Obsidian configuration update${paths.length === 1 ? "" : "s"} before writing files that can reload the app: ${pathListSummary(paths)}.`
-    );
+    const pauseKey = paths.join("|");
+    if (this.lastMobileDeferredConfigApplyKey !== pauseKey) {
+      this.lastMobileDeferredConfigApplyKey = pauseKey;
+      this.log(
+        `Mobile paused ${paths.length} synced Obsidian configuration update${paths.length === 1 ? "" : "s"} before writing files that can reload the app: ${pathListSummary(paths)}.`
+      );
+    }
     const applyNow = await this.promptForPluginReload(plan, paths, true);
     if (!applyNow) {
       this.log(
@@ -1589,7 +1643,13 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       this.approvedMobileReloadSensitiveApplyPaths.add(path);
     }
     this.mobileReloadAfterApprovedApply = true;
+    this.settings = {
+      ...this.settings,
+      mobileApprovedConfigApplyPaths: [...this.approvedMobileReloadSensitiveApplyPaths].sort((left, right) => left.localeCompare(right))
+    };
+    await this.saveSettingsAndReschedule();
     this.pendingMobileReloadSensitiveApplyPaths.clear();
+    this.lastMobileDeferredConfigApplyKey = "";
     this.lastPluginReloadPromptKey = "";
     this.log("Synced plugin/config updates approved. Applying them in the next sync pass, then the app will reload if needed.");
     window.setTimeout(() => {
@@ -1602,6 +1662,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     const hasWork =
       plan.communityPluginsChanged ||
       plan.appSettingsChanged.length > 0 ||
+      plan.otherConfigChanged.length > 0 ||
       plan.pluginsToReload.length > 0 ||
       plan.ownPluginChanged;
     if (!hasWork) {
@@ -1619,6 +1680,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (Platform.isMobile && this.mobileReloadAfterApprovedApply && hasWork) {
       this.mobileReloadAfterApprovedApply = false;
       this.approvedMobileReloadSensitiveApplyPaths.clear();
+      this.settings = {
+        ...this.settings,
+        mobileApprovedConfigApplyPaths: []
+      };
+      await this.saveSettingsAndReschedule();
       this.log("Reloading the app after applying approved synced plugin/config updates.");
       window.setTimeout(() => {
         window.location.reload();
@@ -1659,6 +1725,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       changedPluginCount: plan.pluginsToReload.length,
       communityPluginListChanged: plan.communityPluginsChanged,
       appSettingsChangedCount: plan.appSettingsChanged.length,
+      otherConfigChangedCount: plan.otherConfigChanged.length,
       ownPluginChanged: plan.ownPluginChanged,
       pendingApply
     }).openAndWait();
@@ -2181,13 +2248,15 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private async updateLocalQueue(summary: LocalStoreSummary): Promise<void> {
     const current = this.settings.localQueue;
+    const shouldClearMobileApproval = summary.pendingApply === 0 && this.settings.mobileApprovedConfigApplyPaths.length > 0;
     const unchanged =
       current.lastRemoteSeq === summary.lastRemoteSeq &&
       current.files === summary.files &&
       current.chunks === summary.chunks &&
       current.deleted === summary.deleted &&
       current.pendingApply === summary.pendingApply &&
-      current.pendingPush === summary.pendingPush;
+      current.pendingPush === summary.pendingPush &&
+      !shouldClearMobileApproval;
     if (unchanged) {
       return;
     }
@@ -2202,8 +2271,14 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     };
     this.settings = {
       ...this.settings,
-      localQueue
+      localQueue,
+      mobileApprovedConfigApplyPaths: shouldClearMobileApproval ? [] : this.settings.mobileApprovedConfigApplyPaths
     };
+    if (shouldClearMobileApproval) {
+      this.approvedMobileReloadSensitiveApplyPaths.clear();
+      this.mobileReloadAfterApprovedApply = false;
+      this.lastMobileDeferredConfigApplyKey = "";
+    }
     this.scheduleRuntimeDiagnosticsSave();
   }
 

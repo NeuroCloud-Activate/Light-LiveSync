@@ -68,6 +68,7 @@ export type LightweightLiveSyncSettings = {
   previewExportFolder: string;
   stagingApplyFolder: string;
   conflictFolder: string;
+  mobileApprovedConfigApplyPaths: string[];
   remoteState: RemoteInspectionState;
   localQueue: LocalQueueState;
   localPreview: LocalPreviewState;
@@ -249,6 +250,7 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
   previewExportFolder: "",
   stagingApplyFolder: "",
   conflictFolder: "",
+  mobileApprovedConfigApplyPaths: [],
   remoteState: {
     lastCheckedAt: 0,
     databaseName: "",

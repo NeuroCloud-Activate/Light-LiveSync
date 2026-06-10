@@ -4,6 +4,7 @@ export type PluginReloadPromptDetails = {
   changedPluginCount: number;
   communityPluginListChanged: boolean;
   appSettingsChangedCount?: number;
+  otherConfigChangedCount?: number;
   ownPluginChanged: boolean;
   pendingApply?: boolean;
 };
@@ -39,6 +40,9 @@ export class PluginReloadPromptModal extends Modal {
     }
     if ((this.details.appSettingsChangedCount ?? 0) > 0) {
       details.push(`${this.details.appSettingsChangedCount} app setting file${this.details.appSettingsChangedCount === 1 ? "" : "s"}`);
+    }
+    if ((this.details.otherConfigChangedCount ?? 0) > 0) {
+      details.push(`${this.details.otherConfigChangedCount} configuration file${this.details.otherConfigChangedCount === 1 ? "" : "s"}`);
     }
     if (this.details.changedPluginCount > 0) {
       details.push(`${this.details.changedPluginCount} plugin bundle${this.details.changedPluginCount === 1 ? "" : "s"}`);

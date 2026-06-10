@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.55
+
+- Treats every `.obsidian` update as reload-sensitive on mobile, including plugin `data.json` settings, so iPadOS cannot reload while ordinary vault files are still applying.
+- Applies notes, attachments, and other non-configuration vault files first, then pauses Obsidian configuration updates behind explicit approval.
+- Persists mobile config-apply approval across app reloads and pre-marks approved config files before writing them, preventing the same approved update from looping after a reload.
+- Shows paused configuration counts in the mobile reload prompt and tracks plugin settings as configuration work for clearer diagnostics.
+
 ## 0.1.54
 
 - Broadens the mobile reload guard to pause top-level `.obsidian` app setting files before they are written on iPhone or iPad.

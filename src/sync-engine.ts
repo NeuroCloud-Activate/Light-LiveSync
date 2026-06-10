@@ -327,6 +327,7 @@ export type SyncEngineHost = {
   readLocalFileInfo?(path: string): Promise<LocalFileInfo | undefined>;
   readLocalFileSnapshot(path: string): Promise<LocalFileSnapshot | undefined>;
   buildLocalPushBundle(snapshot: LocalFileSnapshot, options: LiveSyncBuildOptions): Promise<LiveSyncPushBundle>;
+  shouldAutoApplyPull?(databaseName: string): Promise<boolean>;
   applyPulledChanges(databaseName: string, client?: SyncRemoteClient): Promise<AutoApplyOutcome>;
   createRemoteClient?(settings: LightweightLiveSyncSettings): SyncRemoteClient;
   isNetworkLikelyOnline?(): boolean;
@@ -592,12 +593,16 @@ export class LightweightSyncEngine {
     summary: LocalStoreSummary,
     client: SyncRemoteClient
   ): Promise<AutoApplyOutcome | undefined> {
+    if (!settings.autoApplyPull || summary.pendingApply <= 0) {
+      return undefined;
+    }
+    if (this.host.shouldAutoApplyPull && !await this.host.shouldAutoApplyPull(settings.couchDb.database)) {
+      return undefined;
+    }
     if (settings.autoApplyPull && summary.pendingApply > 0) {
       this.host.reportProgress?.({ phase: "apply-start", pending: summary.pendingApply });
     }
-    return settings.autoApplyPull && summary.pendingApply > 0
-      ? this.host.applyPulledChanges(settings.couchDb.database, client)
-      : undefined;
+    return this.host.applyPulledChanges(settings.couchDb.database, client);
   }
 
   private async queueCurrentVaultForFirstAutomaticSync(
