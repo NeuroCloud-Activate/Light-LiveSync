@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.51
+
+- Fixes encrypted background-worker uploads by using worker-safe base64 helpers instead of window-only base64 APIs.
+- Adds a worker bundle test that runs an encrypted push without a window object, matching the mobile and desktop worker runtime.
+
 ## 0.1.50
 
 - Speeds up startup sync by replacing full local-cache summary scans with IndexedDB counts.

@@ -27,18 +27,22 @@ function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
   return copy.buffer;
 }
 
+function base64Runtime(): Pick<WindowOrWorkerGlobalScope, "atob" | "btoa"> {
+  return self;
+}
+
 export function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   const batchSize = 0x8000;
   for (let offset = 0; offset < bytes.length; offset += batchSize) {
     binary += String.fromCharCode(...bytes.slice(offset, offset + batchSize));
   }
-  return window.btoa(binary);
+  return base64Runtime().btoa(binary);
 }
 
 export function base64ToBytes(value: string): Uint8Array {
   try {
-    const binary: string = window.atob(normaliseBase64(value));
+    const binary: string = base64Runtime().atob(normaliseBase64(value));
     const bytes = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index += 1) {
       bytes[index] = binary.charCodeAt(index);
