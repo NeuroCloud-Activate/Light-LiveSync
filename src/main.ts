@@ -19,11 +19,12 @@ import { decodeSettingsFromSetupQr } from "./setup-qr";
 import { SetupUriModal } from "./setup-uri-modal";
 import { GeneratedSetupUriModal } from "./generated-setup-uri-modal";
 import { LightweightLiveSyncSettingTab } from "./settings-tab";
-import { LocalDocumentStore, type LocalStoreSummary } from "./local-document-store";
+import { LocalDocumentStore, type LocalStoreSummary, type LocalSyncWorkState } from "./local-document-store";
 import {
   DEFAULT_SETTINGS,
   DEFAULT_REMOTE_CHECK_INTERVAL_SEC,
   FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC,
+  LEGACY_DEFAULT_VAULT_CHANGE_BATCH_WINDOW_SEC,
   applyCredentialPayload,
   type CredentialPayload,
   credentialPayloadFromSettings,
@@ -45,6 +46,7 @@ import {
   LightweightSyncEngine,
   localPushFingerprintMatchesFileInfo,
   type LocalFileInfo,
+  type LocalVaultStats,
   type SyncOutcome,
   type SyncProgress,
   type SyncRemoteClient
@@ -179,6 +181,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private obsidianPluginRefreshAttempts = 0;
   private pendingObsidianPluginRefreshPaths = new Set<string>();
   private lastConfigFallbackScanAt = 0;
+  private configFallbackScanPromise?: Promise<LocalStoreSummary | undefined>;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -192,6 +195,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       updateRemoteInspection: (inspection) => this.updateRemoteInspection(inspection),
       updateLocalQueue: (summary) => this.updateLocalQueue(summary),
       queueCurrentVaultForSync: () => this.queueCurrentVaultForSync("Automatic first sync"),
+      getLocalVaultStats: () => this.getLocalVaultStats(),
       getLocalStore: (databaseName) => this.getLocalStore(databaseName),
       readLocalFileInfo: (path) => this.readLocalFileInfo(path),
       readLocalFileSnapshot: (path) => this.readLocalFileSnapshot(path),
@@ -242,15 +246,6 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       if (this.configuredAtLoad && this.settings.syncOnStart && this.canRunAutomaticSync()) {
         this.log("Startup sync requested immediately.");
         this.scheduler.request("startup", true);
-        void this.queueRecentlyChangedConfigForSync("Startup config scan", { force: true })
-          .then((summary) => {
-            if ((summary?.pendingPush ?? 0) > 0) {
-              this.scheduler.request("vault-change", true);
-            }
-          })
-          .catch((error) => {
-            this.log(`Startup config scan skipped: ${error instanceof Error ? error.message : String(error)}`);
-          });
         window.setTimeout(() => {
           void this.runAutomaticRuntimeCheck();
         }, 2500);
@@ -332,7 +327,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     } else if (loaded.periodicSyncIntervalSec < FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC) {
       this.settings.periodicSyncIntervalSec = FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC;
     }
-    if (loaded?.vaultChangeBatchWindowSec === undefined || loaded.vaultChangeBatchWindowSec >= 60) {
+    if (
+      loaded?.vaultChangeBatchWindowSec === undefined ||
+      loaded.vaultChangeBatchWindowSec === LEGACY_DEFAULT_VAULT_CHANGE_BATCH_WINDOW_SEC ||
+      loaded.vaultChangeBatchWindowSec >= 60
+    ) {
       this.settings.vaultChangeBatchWindowSec = DEFAULT_SETTINGS.vaultChangeBatchWindowSec;
     }
     if (loaded?.minimumSyncIntervalMs === undefined || loaded.minimumSyncIntervalMs >= 30000) {
@@ -1811,10 +1810,15 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       }
       this.lastForegroundRemoteCheckAt = now;
       this.logProgress("App became active; checking CouchDB for remote changes.", true);
+      this.scheduler.request("periodic", true);
       void this.queueRecentlyChangedConfigForSync("Foreground config scan", {
         minIntervalMs: FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC * 1000
-      }).finally(() => {
-        this.scheduler.request("periodic", true);
+      }).then((summary) => {
+        if ((summary?.pendingPush ?? 0) > 0) {
+          this.scheduler.request("vault-change", true);
+        }
+      }).catch((error) => {
+        this.log(`Foreground config scan skipped: ${error instanceof Error ? error.message : String(error)}`);
       });
     };
     const handleVisibilityChange = () => {
@@ -1961,6 +1965,18 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.vaultChangeBatchDueAt = 0;
   }
 
+  private requestConfigScanAfterSync(label: string, options: { force?: boolean; minIntervalMs?: number } = {}): void {
+    void this.queueRecentlyChangedConfigForSync(label, options)
+      .then((summary) => {
+        if ((summary?.pendingPush ?? 0) > 0) {
+          this.scheduler.request("vault-change", true);
+        }
+      })
+      .catch((error) => {
+        this.log(`${label} skipped: ${error instanceof Error ? error.message : String(error)}`);
+      });
+  }
+
   private async updateRemoteInspection(inspection: RemoteInspection): Promise<void> {
     const current = this.settings.remoteState;
     const unchanged =
@@ -2038,6 +2054,42 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.settings = {
       ...this.settings,
       localQueue
+    };
+    this.scheduleRuntimeDiagnosticsSave();
+  }
+
+  private async getLocalVaultStats(): Promise<LocalVaultStats> {
+    let fileCount = 0;
+    let totalBytes = 0;
+    for (const file of this.app.vault.getFiles()) {
+      const path = normalizePath(file.path);
+      if (!this.shouldSyncPath(path)) {
+        continue;
+      }
+      fileCount++;
+      totalBytes += Math.max(0, file.stat.size);
+    }
+    return { fileCount, totalBytes };
+  }
+
+  private updateLocalWorkState(work: LocalSyncWorkState): void {
+    const current = this.settings.localQueue;
+    if (
+      current.lastRemoteSeq === work.lastRemoteSeq &&
+      current.pendingApply === work.pendingApply &&
+      current.pendingPush === work.pendingPush
+    ) {
+      return;
+    }
+    this.settings = {
+      ...this.settings,
+      localQueue: {
+        ...current,
+        lastPulledAt: Date.now(),
+        lastRemoteSeq: work.lastRemoteSeq,
+        pendingApply: work.pendingApply,
+        pendingPush: work.pendingPush
+      }
     };
     this.scheduleRuntimeDiagnosticsSave();
   }
@@ -2172,6 +2224,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       ...this.settings,
       runtime
     };
+    if (details.reason === "startup" && !failed) {
+      this.requestConfigScanAfterSync("Startup config scan", { force: true });
+    }
     if (failed) {
       this.log(`${friendlySyncReason(details.reason)} sync stopped with an issue: ${runtime.lastSyncError || runtime.lastSyncMessage}`);
     } else if (details.result?.ok && details.result.continueSync) {
@@ -2223,7 +2278,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
     this.forgetLocalSnapshot(path);
     const store = this.getLocalStore(this.settings.couchDb.database);
-    await this.updateLocalQueue(await store.queueLocalChange(path, deleted));
+    await store.queueLocalChangeOnly(path, deleted);
+    this.updateLocalWorkState(await store.getWorkState());
   }
 
   private async queueCurrentVaultForSync(label: string): Promise<LocalStoreSummary | undefined> {
@@ -2346,7 +2402,19 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!options.force && minIntervalMs > 0 && now - this.lastConfigFallbackScanAt < minIntervalMs) {
       return undefined;
     }
-    this.lastConfigFallbackScanAt = now;
+    if (this.configFallbackScanPromise) {
+      return this.configFallbackScanPromise;
+    }
+    this.configFallbackScanPromise = this.runRecentlyChangedConfigForSync(label, since, now);
+    try {
+      return await this.configFallbackScanPromise;
+    } finally {
+      this.configFallbackScanPromise = undefined;
+    }
+  }
+
+  private async runRecentlyChangedConfigForSync(label: string, since: number, startedAt: number): Promise<LocalStoreSummary | undefined> {
+    this.lastConfigFallbackScanAt = startedAt;
     const adapter = this.app.vault.adapter as VaultListAdapter;
     if (typeof adapter.list !== "function") {
       return undefined;

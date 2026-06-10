@@ -18,7 +18,7 @@ class MemoryStore {
     const now = Date.now();
     return this.pendingPushes
       .filter((change) => (change.nextAttemptAt ?? 0) <= now)
-      .sort((left, right) => (left.nextAttemptAt ?? 0) - (right.nextAttemptAt ?? 0) || left.queuedAt - right.queuedAt)
+      .sort((left, right) => (left.nextAttemptAt ?? 0) - (right.nextAttemptAt ?? 0) || right.updatedAt - left.updatedAt || left.queuedAt - right.queuedAt)
       .slice(0, limit);
   }
 
@@ -88,6 +88,14 @@ class MemoryStore {
       system: 0,
       unknown: 0,
       deleted: 0,
+      pendingApply: this.pendingApply,
+      pendingPush: this.pendingPushes.length,
+      lastRemoteSeq: this.lastRemoteSeq
+    };
+  }
+
+  async getWorkState() {
+    return {
       pendingApply: this.pendingApply,
       pendingPush: this.pendingPushes.length,
       lastRemoteSeq: this.lastRemoteSeq
@@ -952,7 +960,7 @@ quietPeriodicStore.getSummary = async () => {
 };
 const quietPeriodicOutcome = await quietPeriodicEngine.sync("periodic");
 assert.equal(quietPeriodicOutcome.ok, true);
-assert.equal(quietPeriodicSummaryReads, 1);
+assert.equal(quietPeriodicSummaryReads, 0);
 assert.equal(quietPeriodicOutcome.metrics.pulledChanges, 0);
 
 const missingSaltStore = new MemoryStore([]);

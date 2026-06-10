@@ -2,6 +2,7 @@ export type RemoteKind = "couchdb";
 export type DeviceSetupRole = "initial-device" | "additional-device";
 export const DEFAULT_REMOTE_CHECK_INTERVAL_SEC = 15;
 export const FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC = 15;
+export const LEGACY_DEFAULT_VAULT_CHANGE_BATCH_WINDOW_SEC = 10;
 
 export type CouchDbSettings = {
   uri: string;
@@ -231,7 +232,7 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
   autoApplyPull: true,
   periodicSync: true,
   useBackgroundWorker: true,
-  vaultChangeBatchWindowSec: 10,
+  vaultChangeBatchWindowSec: 2,
   maxPushChangesPerSync: 1000,
   failedPushRetryBaseSec: 60,
   failedPushRetryMaxSec: 900,

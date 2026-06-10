@@ -5,7 +5,7 @@ import {
   type LiveSyncDocument
 } from "./livesync-constants";
 
-const STORE_VERSION = 4;
+const STORE_VERSION = 5;
 const DOCUMENT_STORE = "documents";
 const STATE_STORE = "state";
 const PUSH_STORE = "pendingPushes";
@@ -25,6 +25,7 @@ export type CachedRemoteDocument = {
   stagedAt: number;
   appliedAt: number;
   deleted: boolean;
+  deletedKey?: number;
   kind: "file" | "chunk" | "system" | "unknown";
   doc?: LiveSyncDocument;
 };
@@ -39,6 +40,8 @@ export type LocalStoreSummary = {
   pendingPush: number;
   lastRemoteSeq: string;
 };
+
+export type LocalSyncWorkState = Pick<LocalStoreSummary, "pendingApply" | "pendingPush" | "lastRemoteSeq">;
 
 export type PendingLocalPush = {
   path: string;
@@ -90,6 +93,17 @@ function storeGet<T>(store: IDBObjectStore, key: IDBValidKey | IDBKeyRange): Pro
 function storeGetAll<T>(source: IDBObjectStore | IDBIndex, query?: IDBValidKey | IDBKeyRange): Promise<T[]> {
   const request = query === undefined ? source.getAll() : source.getAll(query);
   return dbRequest<T[]>(request as IDBRequest<T[]>);
+}
+
+function storeCount(source: IDBObjectStore | IDBIndex, query?: IDBValidKey | IDBKeyRange): Promise<number> {
+  const request = query === undefined ? source.count() : source.count(query);
+  return dbRequest<number>(request);
+}
+
+function ensureIndex(store: IDBObjectStore, name: string, keyPath: string | string[]): void {
+  if (!store.indexNames.contains(name)) {
+    store.createIndex(name, keyPath, { unique: false });
+  }
 }
 
 function classifyDocument(id: string, doc: LiveSyncDocument | undefined): CachedRemoteDocument["kind"] {
@@ -167,6 +181,7 @@ export function cachedRemoteDocumentFromChange(
     stagedAt: sameRemoteRevision ? previous.stagedAt ?? 0 : 0,
     appliedAt: sameRemoteRevision ? previous.appliedAt ?? 0 : 0,
     deleted,
+    deletedKey: deleted ? 1 : 0,
     kind,
     doc
   };
@@ -204,14 +219,23 @@ export class LocalDocumentStore {
       const db = request.result;
       if (!db.objectStoreNames.contains(DOCUMENT_STORE)) {
         const documents = db.createObjectStore(DOCUMENT_STORE, { keyPath: "id" });
-        documents.createIndex("kind", "kind", { unique: false });
-        documents.createIndex("stagedAt", "stagedAt", { unique: false });
-        documents.createIndex("appliedAt", "appliedAt", { unique: false });
-        documents.createIndex("seq", "seq", { unique: false });
+        ensureIndex(documents, "kind", "kind");
+        ensureIndex(documents, "stagedAt", "stagedAt");
+        ensureIndex(documents, "appliedAt", "appliedAt");
+        ensureIndex(documents, "seq", "seq");
+        ensureIndex(documents, "deletedKey", "deletedKey");
+        ensureIndex(documents, "kindAppliedAt", ["kind", "appliedAt"]);
+        ensureIndex(documents, "kindStagedAt", ["kind", "stagedAt"]);
       } else {
         const documents = request.transaction?.objectStore(DOCUMENT_STORE);
-        if (documents && !documents.indexNames.contains("stagedAt")) {
-          documents.createIndex("stagedAt", "stagedAt", { unique: false });
+        if (documents) {
+          ensureIndex(documents, "kind", "kind");
+          ensureIndex(documents, "stagedAt", "stagedAt");
+          ensureIndex(documents, "appliedAt", "appliedAt");
+          ensureIndex(documents, "seq", "seq");
+          ensureIndex(documents, "deletedKey", "deletedKey");
+          ensureIndex(documents, "kindAppliedAt", ["kind", "appliedAt"]);
+          ensureIndex(documents, "kindStagedAt", ["kind", "stagedAt"]);
         }
       }
       if (!db.objectStoreNames.contains(STATE_STORE)) {
@@ -304,6 +328,7 @@ export class LocalDocumentStore {
         stagedAt: previous?.stagedAt ?? 0,
         appliedAt: previous?.appliedAt ?? 0,
         deleted: !!doc._deleted,
+        deletedKey: doc._deleted ? 1 : 0,
         kind: classifyDocument(doc._id, doc),
         doc
       };
@@ -326,10 +351,10 @@ export class LocalDocumentStore {
     const transaction = db.transaction(DOCUMENT_STORE, "readonly");
     const done = txDone(transaction);
     const store = transaction.objectStore(DOCUMENT_STORE);
-    const items = await storeGetAll<CachedRemoteDocument>(store.index("kind"), "file");
+    const indexName = field === "appliedAt" ? "kindAppliedAt" : "kindStagedAt";
+    const items = await storeGetAll<CachedRemoteDocument>(store.index(indexName), IDBKeyRange.only(["file", 0]));
     await done;
     return items
-      .filter((item) => (item[field] ?? 0) === 0)
       .sort((left, right) => compareSeq(left.seq, right.seq))
       .slice(0, limit);
   }
@@ -350,6 +375,15 @@ export class LocalDocumentStore {
   }
 
   async queueLocalChanges(changes: LocalChangeToQueue[]): Promise<LocalStoreSummary> {
+    await this.queueLocalChangesOnly(changes);
+    return this.getSummary();
+  }
+
+  async queueLocalChangeOnly(path: string, deleted: boolean): Promise<void> {
+    await this.queueLocalChangesOnly([{ path, deleted }]);
+  }
+
+  async queueLocalChangesOnly(changes: LocalChangeToQueue[]): Promise<void> {
     const uniqueChanges = new Map<string, LocalChangeToQueue>();
     for (const change of changes) {
       if (change.path) {
@@ -358,7 +392,7 @@ export class LocalDocumentStore {
     }
 
     if (uniqueChanges.size === 0) {
-      return this.getSummary();
+      return;
     }
 
     const db = await this.requireDb();
@@ -379,7 +413,6 @@ export class LocalDocumentStore {
       } satisfies PendingLocalPush);
     }
     await done;
-    return this.getSummary();
   }
 
   async getPendingLocalPushBatch(limit: number): Promise<PendingLocalPush[]> {
@@ -395,7 +428,7 @@ export class LocalDocumentStore {
       .sort((left, right) => {
         const leftNext = left.nextAttemptAt ?? 0;
         const rightNext = right.nextAttemptAt ?? 0;
-        return leftNext - rightNext || left.queuedAt - right.queuedAt;
+        return leftNext - rightNext || right.updatedAt - left.updatedAt || left.queuedAt - right.queuedAt;
       })
       .slice(0, limit);
   }
@@ -540,43 +573,56 @@ export class LocalDocumentStore {
     const transaction = db.transaction([DOCUMENT_STORE, STATE_STORE, PUSH_STORE], "readonly");
     const done = txDone(transaction);
     const documents = transaction.objectStore(DOCUMENT_STORE);
-    const checkpoint = await storeGet<LocalSyncCheckpoint>(transaction.objectStore(STATE_STORE), KEY_CHECKPOINT);
+    const [
+      checkpoint,
+      files,
+      chunks,
+      system,
+      unknown,
+      deleted,
+      pendingApply,
+      pendingPush
+    ] = await Promise.all([
+      storeGet<LocalSyncCheckpoint>(transaction.objectStore(STATE_STORE), KEY_CHECKPOINT),
+      storeCount(documents.index("kind"), "file"),
+      storeCount(documents.index("kind"), "chunk"),
+      storeCount(documents.index("kind"), "system"),
+      storeCount(documents.index("kind"), "unknown"),
+      storeCount(documents.index("deletedKey"), 1),
+      storeCount(documents.index("kindAppliedAt"), IDBKeyRange.only(["file", 0])),
+      storeCount(transaction.objectStore(PUSH_STORE))
+    ]);
     const summary: LocalStoreSummary = {
-      files: 0,
-      chunks: 0,
-      system: 0,
-      unknown: 0,
-      deleted: 0,
-      pendingApply: 0,
-      pendingPush: 0,
+      files,
+      chunks,
+      system,
+      unknown,
+      deleted,
+      pendingApply,
+      pendingPush,
       lastRemoteSeq: checkpoint?.lastRemoteSeq ?? "0"
     };
-
-    await new Promise<void>((resolve, reject) => {
-      const request = documents.openCursor();
-      request.onerror = () => reject(request.error ?? new Error("Could not read local queue summary."));
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (!cursor) {
-          resolve();
-          return;
-        }
-
-        const item = cursor.value as CachedRemoteDocument;
-        if (item.kind === "file") summary.files++;
-        if (item.kind === "chunk") summary.chunks++;
-        if (item.kind === "system") summary.system++;
-        if (item.kind === "unknown") summary.unknown++;
-        if (item.deleted) summary.deleted++;
-        if (item.kind === "file" && item.appliedAt === 0) summary.pendingApply++;
-        cursor.continue();
-      };
-    });
-
-    summary.pendingPush = await dbRequest<number>(transaction.objectStore(PUSH_STORE).count());
     await done;
 
     return summary;
+  }
+
+  async getWorkState(): Promise<LocalSyncWorkState> {
+    const db = await this.requireDb();
+    const transaction = db.transaction([DOCUMENT_STORE, STATE_STORE, PUSH_STORE], "readonly");
+    const done = txDone(transaction);
+    const documents = transaction.objectStore(DOCUMENT_STORE);
+    const [checkpoint, pendingApply, pendingPush] = await Promise.all([
+      storeGet<LocalSyncCheckpoint>(transaction.objectStore(STATE_STORE), KEY_CHECKPOINT),
+      storeCount(documents.index("kindAppliedAt"), IDBKeyRange.only(["file", 0])),
+      storeCount(transaction.objectStore(PUSH_STORE))
+    ]);
+    await done;
+    return {
+      pendingApply,
+      pendingPush,
+      lastRemoteSeq: checkpoint?.lastRemoteSeq ?? "0"
+    };
   }
 
   private async requireDb(): Promise<IDBDatabase> {

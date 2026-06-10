@@ -1,6 +1,6 @@
 import { CouchDbClient, type RemoteInspection } from "./couchdb-client";
 import { pathToLiveSyncDocumentId, type LiveSyncBuildOptions, type LiveSyncPushBundle, type LocalFileSnapshot } from "./livesync-document-builder";
-import type { LocalDocumentStore, LocalStoreSummary } from "./local-document-store";
+import type { LocalDocumentStore, LocalStoreSummary, LocalSyncWorkState } from "./local-document-store";
 import { writeVersionForFile } from "./version-history";
 import {
   DEFAULT_RUNTIME_SYNC_METRICS,
@@ -156,6 +156,11 @@ export type LocalFileInfo = {
   contentType: "text" | "binary";
 };
 
+export type LocalVaultStats = {
+  fileCount: number;
+  totalBytes: number;
+};
+
 type ReadySyncSettings = {
   ok: true;
   settings: LightweightLiveSyncSettings;
@@ -174,10 +179,12 @@ const REMOTE_PULL_LIMIT = 250;
 const REMOTE_CACHE_BATCH_SIZE = 50;
 const AUTOMATIC_FULL_VAULT_SCAN_REASONS = new Set<SyncReason>([
   "startup",
-  "periodic",
   "setup-import",
   "setup-qr-import"
 ]);
+const FULL_SCAN_FILE_COUNT_DISCREPANCY_RATIO = 0.25;
+const FULL_SCAN_SIZE_DISCREPANCY_RATIO = 0.25;
+const FULL_SCAN_MIN_LOCAL_SIZE_BYTES = 1024 * 1024;
 
 function failedPushRetryDelayMs(settings: LightweightLiveSyncSettings, attemptsAfterFailure: number): number {
   const baseMs = Math.max(5, settings.failedPushRetryBaseSec) * 1000;
@@ -205,6 +212,19 @@ function emptyPushOutcome(): PushBatchOutcome {
     versionsSkipped: 0,
     versionsPruned: 0,
     versionsFailed: 0
+  };
+}
+
+function summaryFromWorkState(work: LocalSyncWorkState): LocalStoreSummary {
+  return {
+    files: 0,
+    chunks: 0,
+    system: 0,
+    unknown: 0,
+    deleted: 0,
+    pendingApply: work.pendingApply,
+    pendingPush: work.pendingPush,
+    lastRemoteSeq: work.lastRemoteSeq
   };
 }
 
@@ -302,6 +322,7 @@ export type SyncEngineHost = {
   updateRemoteInspection(inspection: RemoteInspection): Promise<void>;
   updateLocalQueue(summary: LocalStoreSummary): Promise<void>;
   queueCurrentVaultForSync?(): Promise<LocalStoreSummary | undefined>;
+  getLocalVaultStats?(): Promise<LocalVaultStats>;
   getLocalStore(databaseName: string): LocalDocumentStore;
   readLocalFileInfo?(path: string): Promise<LocalFileInfo | undefined>;
   readLocalFileSnapshot(path: string): Promise<LocalFileSnapshot | undefined>;
@@ -368,9 +389,9 @@ export class LightweightSyncEngine {
 
     const client = this.createRemoteClient(settings);
     const localStore = this.host.getLocalStore(settings.couchDb.database);
-    const startingSummary = await localStore.getSummary();
-    let activeSummary = startingSummary;
-    const inspection = await this.inspectRemoteWhenNeeded(client, settings, reason, startingSummary, metrics);
+    const startingWork = await this.getLocalWorkState(localStore);
+    let activeWork = startingWork;
+    const inspection = await this.inspectRemoteWhenNeeded(client, settings, reason, startingWork, metrics);
 
     if (inspection) {
       if (!inspection.syncParametersPresent) {
@@ -381,11 +402,11 @@ export class LightweightSyncEngine {
         };
       }
       await this.queueCurrentVaultForFirstAutomaticSync(reason, inspection, localStore);
-      activeSummary = await localStore.getSummary();
+      activeWork = await this.getLocalWorkState(localStore);
     }
 
     const pushStartedAt = Date.now();
-    const pushed = activeSummary.pendingPush > 0
+    const pushed = activeWork.pendingPush > 0
       ? await this.pushLocalChanges(client, localStore, settings)
       : emptyPushOutcome();
     metrics.pushMs = elapsedMs(pushStartedAt);
@@ -411,11 +432,17 @@ export class LightweightSyncEngine {
       return this.syncOutcomeMessage(pushed, pulled, metrics);
     }
 
-    const summaryAfterPush = activeSummary.pendingPush > 0
+    const summaryAfterPush = activeWork.pendingPush > 0
       ? await localStore.getSummary()
-      : activeSummary;
+      : undefined;
     const pullStartedAt = Date.now();
-    let pulled = await this.pullRemoteChanges(client, localStore, inspection?.updateSequence ?? activeSummary.lastRemoteSeq, summaryAfterPush);
+    let pulled = await this.pullRemoteChanges(
+      client,
+      localStore,
+      inspection?.updateSequence ?? activeWork.lastRemoteSeq,
+      summaryAfterPush,
+      activeWork
+    );
     metrics.pullMs = elapsedMs(pullStartedAt);
     metrics.pulledChanges = pulled.pulledCount;
 
@@ -442,7 +469,7 @@ export class LightweightSyncEngine {
     client: SyncRemoteClient,
     settings: LightweightLiveSyncSettings,
     reason: SyncReason,
-    startingSummary: LocalStoreSummary,
+    startingSummary: LocalSyncWorkState,
     metrics: RuntimeSyncMetricsState
   ): Promise<RemoteInspection | undefined> {
     if (this.canUseLightweightPull(settings, reason, startingSummary)) {
@@ -464,7 +491,7 @@ export class LightweightSyncEngine {
     return inspection;
   }
 
-  private shouldSampleRemoteChangesForInspection(reason: SyncReason, startingSummary: LocalStoreSummary): boolean {
+  private shouldSampleRemoteChangesForInspection(reason: SyncReason, startingSummary: LocalSyncWorkState): boolean {
     if (startingSummary.lastRemoteSeq !== "0") {
       return false;
     }
@@ -477,7 +504,7 @@ export class LightweightSyncEngine {
   private canUseLightweightPull(
     settings: LightweightLiveSyncSettings,
     reason: SyncReason,
-    startingSummary: LocalStoreSummary
+    startingSummary: LocalSyncWorkState
   ): boolean {
     const startupCatchUpHasCheckpoint = reason === "startup" && startingSummary.lastRemoteSeq !== "0";
     return (reason === "periodic" || startupCatchUpHasCheckpoint) &&
@@ -503,13 +530,14 @@ export class LightweightSyncEngine {
     client: SyncRemoteClient,
     localStore: LocalDocumentStore,
     remoteEndSeq: string,
-    knownSummary?: LocalStoreSummary
+    knownSummary?: LocalStoreSummary,
+    knownWork?: LocalSyncWorkState
   ): Promise<PulledRemoteChanges> {
     const checkpoint = await localStore.getCheckpoint();
     this.host.reportProgress?.({ phase: "pull-start", since: checkpoint.lastRemoteSeq });
     const pullStartedAt = Date.now();
     const pulled = await client.getChangesSince(checkpoint.lastRemoteSeq, REMOTE_PULL_LIMIT);
-    let summary = knownSummary ?? await localStore.getSummary();
+    let summary = knownSummary;
     let pulledBytes = 0;
     for (let index = 0; index < pulled.changes.length; index += REMOTE_CACHE_BATCH_SIZE) {
       const batch = pulled.changes.slice(index, index + REMOTE_CACHE_BATCH_SIZE);
@@ -534,9 +562,15 @@ export class LightweightSyncEngine {
     }
     if (pulled.lastSeq !== checkpoint.lastRemoteSeq) {
       await localStore.setCheckpoint(pulled.lastSeq);
-      summary = { ...summary, lastRemoteSeq: String(pulled.lastSeq) };
+      const baseSummary = summary ?? summaryFromWorkState(knownWork ?? await this.getLocalWorkState(localStore));
+      summary = { ...baseSummary, lastRemoteSeq: String(pulled.lastSeq) };
     }
-    await this.host.updateLocalQueue(summary);
+    if (!summary) {
+      summary = summaryFromWorkState(knownWork ?? await this.getLocalWorkState(localStore));
+    }
+    if (knownSummary || pulled.changes.length > 0 || pulled.lastSeq !== checkpoint.lastRemoteSeq) {
+      await this.host.updateLocalQueue(summary);
+    }
     this.host.reportProgress?.({
       phase: "pull-complete",
       total: pulled.changes.length,
@@ -575,12 +609,12 @@ export class LightweightSyncEngine {
       return;
     }
 
-    if (!this.remoteHasNoCurrentVaultDocuments(inspection)) {
+    if (!await this.shouldQueueAutomaticFullVaultScan(inspection)) {
       return;
     }
 
-    const summary = await localStore.getSummary();
-    if (summary.pendingPush > 0) {
+    const work = await this.getLocalWorkState(localStore);
+    if (work.pendingPush > 0) {
       return;
     }
 
@@ -588,6 +622,51 @@ export class LightweightSyncEngine {
     if (nextSummary && nextSummary.pendingPush > 0) {
       this.host.log(`Automatic first sync queued ${nextSummary.pendingPush} vault file${nextSummary.pendingPush === 1 ? "" : "s"} after finding an empty remote vault.`);
     }
+  }
+
+  private async getLocalWorkState(localStore: LocalDocumentStore): Promise<LocalSyncWorkState> {
+    const storeWithWorkState = localStore as LocalDocumentStore & {
+      getWorkState?(): Promise<LocalSyncWorkState>;
+    };
+    if (typeof storeWithWorkState.getWorkState === "function") {
+      return storeWithWorkState.getWorkState();
+    }
+    const summary = await localStore.getSummary();
+    return {
+      pendingApply: summary.pendingApply,
+      pendingPush: summary.pendingPush,
+      lastRemoteSeq: summary.lastRemoteSeq
+    };
+  }
+
+  private async shouldQueueAutomaticFullVaultScan(inspection: RemoteInspection): Promise<boolean> {
+    if (this.remoteHasNoCurrentVaultDocuments(inspection)) {
+      return true;
+    }
+    if (!this.host.getLocalVaultStats) {
+      return false;
+    }
+    const localStats = await this.host.getLocalVaultStats();
+    if (
+      localStats.fileCount > 0 &&
+      inspection.documentCount < Math.max(1, localStats.fileCount * FULL_SCAN_FILE_COUNT_DISCREPANCY_RATIO)
+    ) {
+      this.host.log(
+        `Automatic full-vault verification queued because CouchDB has far fewer documents (${inspection.documentCount}) than local files (${localStats.fileCount}).`
+      );
+      return true;
+    }
+    if (
+      localStats.totalBytes >= FULL_SCAN_MIN_LOCAL_SIZE_BYTES &&
+      inspection.databaseSizeBytes > 0 &&
+      inspection.databaseSizeBytes < localStats.totalBytes * FULL_SCAN_SIZE_DISCREPANCY_RATIO
+    ) {
+      this.host.log(
+        `Automatic full-vault verification queued because CouchDB size (${inspection.databaseSizeBytes} bytes) is far smaller than the local vault (${localStats.totalBytes} bytes).`
+      );
+      return true;
+    }
+    return false;
   }
 
   private remoteHasNoCurrentVaultDocuments(inspection: RemoteInspection): boolean {

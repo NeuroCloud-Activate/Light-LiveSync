@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.50
+
+- Speeds up startup sync by replacing full local-cache summary scans with IndexedDB counts.
+- Adds local indexes for pending remote apply items so large cached CouchDB histories do not delay the first server check.
+- Lets foreground and startup CouchDB checks run before slower configuration fallback scans, then queues any discovered config uploads afterward.
+- Deduplicates overlapping configuration fallback scans and prioritizes newer local uploads ahead of older unchanged queue entries.
+- Reduces the default local edit batching window to 2 seconds for faster small-file sync.
+
 ## 0.1.49
 
 - Cleans up an Obsidian source review warning by using a typed own-property check in the plugin manager refresh path.

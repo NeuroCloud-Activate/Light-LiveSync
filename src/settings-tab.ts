@@ -497,7 +497,7 @@ export class LightweightLiveSyncSettingTab extends PluginSettingTab {
     this.renderBooleanSetting(containerEl, "Automatically apply pulled files", "autoApplyPull", "Applies ready remote files in batches. Text differences are merged automatically and recovery backups are created first.");
     this.renderBooleanSetting(containerEl, "Use background worker", "useBackgroundWorker", "Moves chunking, hashing, and encryption off the main Obsidian thread when the device supports it. If it fails, the plugin falls back automatically.");
     this.renderPeriodicSync(containerEl);
-    this.renderNumberSetting(containerEl, "Vault change batch window", "vaultChangeBatchWindowSec", 5, "Seconds to wait after local changes before syncing. Higher values use less data on poor connections.");
+    this.renderNumberSetting(containerEl, "Vault change batch window", "vaultChangeBatchWindowSec", 1, "Seconds to wait after local changes before syncing. Higher values use less data on poor connections.");
     this.renderNumberSetting(containerEl, "Max files uploaded per sync", "maxPushChangesPerSync", 1, "Upper bound for changed files uploaded in one run. The default is high enough for full-vault first syncs while fingerprints skip unchanged files.");
     this.renderNumberSetting(containerEl, "Max remote files applied per sync", "maxStorageApplyConcurrency", 1, "Upper bound for pulled files written into the vault in one run. Backups are created before overwrite, merge, or delete operations.");
     this.renderNumberSetting(containerEl, "First retry after failed upload", "failedPushRetryBaseSec", 5, "Seconds before retrying a failed upload. The changed file stays queued safely.");

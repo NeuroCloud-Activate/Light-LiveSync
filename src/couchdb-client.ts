@@ -27,6 +27,7 @@ export type RemoteInspection = {
   serverVersion: string;
   databaseName: string;
   documentCount: number;
+  databaseSizeBytes: number;
   updateSequence: string;
   syncParametersPresent: boolean;
   syncParameterSalt: string;
@@ -154,6 +155,12 @@ function emptyChangeSample(): RemoteInspection["sample"] {
     deleted: 0,
     unknown: 0
   };
+}
+
+function databaseSizeBytes(info: CouchDbInfo): number {
+  const sizes = info.sizes ?? {};
+  const candidates = [sizes.external, sizes.active, sizes.file];
+  return candidates.find((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0) ?? 0;
 }
 
 function sequenceToString(value: unknown, fallback = "0"): string {
@@ -301,6 +308,7 @@ export class CouchDbClient {
       serverVersion: serverInfo.version ?? "unknown",
       databaseName: dbInfo.db_name,
       documentCount: dbInfo.doc_count,
+      databaseSizeBytes: databaseSizeBytes(dbInfo),
       updateSequence: sequenceToString(dbInfo.update_seq),
       syncParametersPresent: !!syncParameters,
       syncParameterSalt: typeof syncParameters?.pbkdf2salt === "string" ? syncParameters.pbkdf2salt : "",
