@@ -27,6 +27,7 @@ type LiveVaultApplyOptions = {
   configDir: string;
   conflictFolder: string;
   shouldApplyPath?(path: string): boolean;
+  deferApplyPath?(path: string): string | undefined;
   yieldToUi?(): Promise<void>;
 };
 
@@ -331,7 +332,7 @@ async function applyReadyPreview(
 async function applyPreview(
   vault: LiveVaultTarget,
   preview: ReconstructedDocumentPreview,
-  options: Pick<LiveVaultApplyOptions, "configDir" | "shouldApplyPath">,
+  options: Pick<LiveVaultApplyOptions, "configDir" | "shouldApplyPath" | "deferApplyPath">,
   result: MutableLiveVaultApplyResult
 ): Promise<void> {
   const targetPath = safeVaultPath(preview.path);
@@ -347,7 +348,6 @@ async function applyPreview(
     recordReason(result.skippedReasons, targetPath, "Protected vault location.");
     return;
   }
-
   if (preview.status !== "ready" && preview.status !== "deleted") {
     if (preview.status === "unsupported") {
       result.skipped++;
@@ -357,6 +357,12 @@ async function applyPreview(
     }
     result.waiting++;
     recordReason(result.waitingReasons, preview.path, preview.reason ?? `Remote file is ${preview.status}.`);
+    return;
+  }
+  const deferredReason = options.deferApplyPath?.(targetPath);
+  if (deferredReason) {
+    result.waiting++;
+    recordReason(result.waitingReasons, targetPath, deferredReason);
     return;
   }
 

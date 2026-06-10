@@ -4,6 +4,7 @@ export type PluginReloadPromptDetails = {
   changedPluginCount: number;
   communityPluginListChanged: boolean;
   ownPluginChanged: boolean;
+  pendingApply?: boolean;
 };
 
 export class PluginReloadPromptModal extends Modal {
@@ -26,7 +27,9 @@ export class PluginReloadPromptModal extends Modal {
     contentEl.addClass("light-livesync-modal");
     contentEl.createEl("h2", { text: "Reload needed" });
     contentEl.createEl("p", {
-      text: "Synced plugin changes are ready. Reloading applies the updated plugin list or plugin bundle, but Light-LiveSync will wait for your choice."
+      text: this.details.pendingApply
+        ? "Synced plugin changes are waiting. Applying them can reload the mobile app, so Light-LiveSync will wait for your choice."
+        : "Synced plugin changes are ready. Reloading applies the updated plugin list or plugin bundle, but Light-LiveSync will wait for your choice."
     });
 
     const details = [];
@@ -46,7 +49,7 @@ export class PluginReloadPromptModal extends Modal {
     new Setting(contentEl)
       .addButton((button) => {
         button
-          .setButtonText("Reload now")
+          .setButtonText(this.details.pendingApply ? "Apply and reload" : "Reload now")
           .setCta()
           .onClick(() => this.closeWith(true));
       })

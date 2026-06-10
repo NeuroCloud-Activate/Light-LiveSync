@@ -164,6 +164,39 @@ assert.equal(configResult.skipped, 0);
 assert.deepEqual(configResult.changedPaths, [".obsidian/app.json"]);
 assert.equal(vault.files.get(".obsidian/app.json"), "{}");
 
+vault.files.set(".obsidian/plugins/calendar/manifest.json", "{\"name\":\"Calendar\"}");
+const deferredPluginAssetResult = await applyReadyPreviewsToLiveVault(
+  vault,
+  [
+    {
+      id: "doc-deferred-plugin-asset",
+      rev: "1-deferred-plugin-asset",
+      path: ".obsidian/plugins/calendar/manifest.json",
+      status: "ready",
+      contentType: "text",
+      chunkCount: 1,
+      byteLength: 28,
+      content: "{\"name\":\"Calendar Updated\"}"
+    }
+  ],
+  {
+    configDir: ".obsidian",
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts",
+    deferApplyPath: (path) => path.endsWith("/manifest.json")
+      ? "Waiting for approval before applying plugin files that can reload the mobile app."
+      : undefined
+  }
+);
+
+assert.equal(deferredPluginAssetResult.waiting, 1);
+assert.equal(deferredPluginAssetResult.applied, 0);
+assert.equal(deferredPluginAssetResult.skipped, 0);
+assert.deepEqual(deferredPluginAssetResult.appliedIds, []);
+assert.deepEqual(deferredPluginAssetResult.skippedIds, []);
+assert.deepEqual(deferredPluginAssetResult.changedPaths, []);
+assert.equal(vault.files.get(".obsidian/plugins/calendar/manifest.json"), "{\"name\":\"Calendar\"}");
+assert.equal(deferredPluginAssetResult.waitingReasons.some((reason) => /Waiting for approval/.test(reason)), true);
+
 vault.files.set(".obsidian/plugins/other-plugin/data.json", "{\"old\":true}");
 vault.adapterOnlyPaths.add(".obsidian/plugins/other-plugin/data.json");
 const adapterOnlyResult = await applyReadyPreviewsToLiveVault(
@@ -467,6 +500,7 @@ console.log(JSON.stringify({
   backups: writeResult.backedUp + deleteResult.backedUp,
   conflicts: writeResult.conflicted + deleteResult.conflicted,
   configSynced: vault.files.get(".obsidian/app.json") === "{}",
+  deferredPluginAssetWaiting: deferredPluginAssetResult.waiting,
   adapterOnlyFilesSync: adapterOnlyResult.failed === 0,
   remoteTextDeleteMerged: remoteTextDeleteResult.merged,
   binaryUpdateApplied: binaryUpdateResult.applied,

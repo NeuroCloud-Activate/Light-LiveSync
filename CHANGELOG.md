@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.53
+
+- Prevents mobile reload loops by deferring synced community-plugin enablement and plugin bundle writes until the user approves applying them.
+- Keeps deferred plugin/config files pending instead of marking them applied, so approved mobile plugin updates can still finish safely.
+- Adds apply-path coverage to confirm deferred plugin assets are not written, skipped, or lost.
+
 ## 0.1.52
 
 - Stops automatic community-plugin reloads on mobile after synced `.obsidian` updates, preventing repeated iPadOS app reload loops.

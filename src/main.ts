@@ -184,6 +184,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private lastConfigFallbackScanAt = 0;
   private configFallbackScanPromise?: Promise<LocalStoreSummary | undefined>;
   private lastPluginReloadPromptKey = "";
+  private pendingMobileReloadSensitiveApplyPaths = new Set<string>();
+  private approvedMobileReloadSensitiveApplyPaths = new Set<string>();
+  private mobileReloadAfterApprovedApply = false;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -1486,6 +1489,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       configDir: this.app.vault.configDir,
       conflictFolder: this.conflictFolder(),
       shouldApplyPath: (path) => this.shouldSyncPath(path),
+      deferApplyPath: (path) => this.deferMobileReloadSensitiveApplyPath(path),
       yieldToUi: () => this.yieldToUi()
     }));
     await context.store.markApplied([...result.appliedIds, ...result.skippedIds]);
@@ -1499,9 +1503,52 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       );
     }
     await this.updateLocalLiveApply(result);
+    await this.promptForDeferredMobileReloadSensitiveApply();
     await this.refreshObsidianAfterSyncedConfigChanges(result.changedPaths);
     await this.updateLocalQueue(await context.store.getSummary());
     return result;
+  }
+
+  private deferMobileReloadSensitiveApplyPath(path: string): string | undefined {
+    const normalized = normalizePath(path);
+    if (!Platform.isMobile) {
+      return undefined;
+    }
+    if (this.approvedMobileReloadSensitiveApplyPaths.has(normalized)) {
+      return undefined;
+    }
+    const plan = planObsidianConfigRefresh([normalized], this.app.vault.configDir, this.manifest.id);
+    if (!shouldPromptForAppReload(plan, true)) {
+      return undefined;
+    }
+    this.pendingMobileReloadSensitiveApplyPaths.add(normalized);
+    return "Waiting for approval before applying plugin files that can reload the mobile app.";
+  }
+
+  private async promptForDeferredMobileReloadSensitiveApply(): Promise<void> {
+    if (!Platform.isMobile || this.pendingMobileReloadSensitiveApplyPaths.size === 0) {
+      return;
+    }
+    const paths = [...this.pendingMobileReloadSensitiveApplyPaths].sort((left, right) => left.localeCompare(right));
+    const plan = planObsidianConfigRefresh(paths, this.app.vault.configDir, this.manifest.id);
+    const applyNow = await this.promptForPluginReload(plan, paths, true);
+    if (!applyNow) {
+      this.log(
+        `Paused ${paths.length} synced plugin/config update${paths.length === 1 ? "" : "s"} on mobile because applying them can reload the app. Notes, attachments, and settings data can continue syncing.`
+      );
+      return;
+    }
+
+    for (const path of paths) {
+      this.approvedMobileReloadSensitiveApplyPaths.add(path);
+    }
+    this.mobileReloadAfterApprovedApply = true;
+    this.pendingMobileReloadSensitiveApplyPaths.clear();
+    this.lastPluginReloadPromptKey = "";
+    this.log("Synced plugin/config updates approved. Applying them in the next sync pass, then the app will reload if needed.");
+    window.setTimeout(() => {
+      this.scheduler.request("vault-change", true);
+    }, 0);
   }
 
   private async refreshObsidianAfterSyncedConfigChanges(changedPaths: string[]): Promise<void> {
@@ -1523,8 +1570,23 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     } else if (plan.communityPluginsChanged || plan.pluginsToReload.length > 0) {
       this.log("Synced community plugin changes were written. Automatic plugin reload is paused on mobile to avoid app reload loops.");
     }
+    if (Platform.isMobile && this.mobileReloadAfterApprovedApply && shouldPromptForAppReload(plan, true)) {
+      this.mobileReloadAfterApprovedApply = false;
+      this.approvedMobileReloadSensitiveApplyPaths.clear();
+      this.log("Reloading the app after applying approved synced plugin/config updates.");
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 100);
+      return;
+    }
     if (shouldPromptForAppReload(plan, Platform.isMobile)) {
-      await this.promptForPluginReload(plan, changedPaths);
+      const reloadNow = await this.promptForPluginReload(plan, changedPaths, false);
+      if (reloadNow) {
+        this.log("Reloading the app after synced plugin changes, as requested.");
+        window.setTimeout(() => {
+          window.location.reload();
+        }, 100);
+      }
     } else if (plan.ownPluginChanged) {
       this.log("Synced Light-LiveSync plugin files changed. Reload the app or disable/enable Light-LiveSync to use the new plugin bundle.");
     }
@@ -1532,33 +1594,33 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private async promptForPluginReload(
     plan: ReturnType<typeof planObsidianConfigRefresh>,
-    changedPaths: string[]
-  ): Promise<void> {
+    changedPaths: string[],
+    pendingApply: boolean
+  ): Promise<boolean> {
     const promptKey = [
+      pendingApply ? "pending" : "written",
       plan.communityPluginsChanged ? "community" : "",
       plan.ownPluginChanged ? "own" : "",
       ...plan.pluginsToReload,
       ...changedPaths.map((path) => normalizePath(path)).sort()
     ].filter(Boolean).join("|");
     if (!promptKey || this.lastPluginReloadPromptKey === promptKey) {
-      return;
+      return false;
     }
     this.lastPluginReloadPromptKey = promptKey;
 
     const reloadNow = await new PluginReloadPromptModal(this.app, {
       changedPluginCount: plan.pluginsToReload.length,
       communityPluginListChanged: plan.communityPluginsChanged,
-      ownPluginChanged: plan.ownPluginChanged
+      ownPluginChanged: plan.ownPluginChanged,
+      pendingApply
     }).openAndWait();
     if (!reloadNow) {
       this.log("Synced plugin changes are ready. Reload later from the prompt or restart the app when convenient.");
-      return;
+      return false;
     }
 
-    this.log("Reloading the app after synced plugin changes, as requested.");
-    window.setTimeout(() => {
-      window.location.reload();
-    }, 100);
+    return true;
   }
 
   private notifyObsidianSettingsChanged(paths: string[]): void {
