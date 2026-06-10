@@ -26,14 +26,11 @@ function isReloadablePluginAsset(pluginPath: string): boolean {
 }
 
 export function shouldDeferMobileConfigApply(
-  path: string,
-  configDir: string,
+  _path: string,
+  _configDir: string,
   _ownPluginId: string
 ): boolean {
-  const normalizedConfigDir = normalizePathPart(configDir);
-  const normalizedPath = normalizePathPart(path);
-  return !!normalizedConfigDir &&
-    (normalizedPath === normalizedConfigDir || normalizedPath.startsWith(`${normalizedConfigDir}/`));
+  return false;
 }
 
 export function planObsidianConfigRefresh(
@@ -107,12 +104,13 @@ export function planObsidianConfigRefresh(
 }
 
 export function shouldAutoApplyPluginRefresh(plan: ObsidianConfigRefreshPlan, isMobile: boolean): boolean {
-  if (isMobile) {
-    return false;
-  }
-  return plan.communityPluginsChanged || plan.pluginsToReload.length > 0;
+  void plan;
+  void isMobile;
+  return false;
 }
 
 export function shouldPromptForAppReload(plan: ObsidianConfigRefreshPlan, isMobile: boolean): boolean {
-  return plan.ownPluginChanged || (isMobile && (plan.communityPluginsChanged || plan.pluginsToReload.length > 0));
+  void plan;
+  void isMobile;
+  return false;
 }

@@ -28,10 +28,10 @@ assert.deepEqual(plan.appSettingsChanged, [".obsidian/app.json", ".obsidian/appe
 assert.deepEqual(plan.otherConfigChanged, [".obsidian/plugins/calendar/data.json", ".obsidian/plugins/light-livesync/data.json"]);
 assert.deepEqual(plan.pluginsToReload, ["tasks"]);
 assert.equal(plan.ownPluginChanged, true);
-assert.equal(shouldAutoApplyPluginRefresh(plan, false), true);
+assert.equal(shouldAutoApplyPluginRefresh(plan, false), false);
 assert.equal(shouldAutoApplyPluginRefresh(plan, true), false);
-assert.equal(shouldPromptForAppReload(plan, false), true);
-assert.equal(shouldPromptForAppReload(plan, true), true);
+assert.equal(shouldPromptForAppReload(plan, false), false);
+assert.equal(shouldPromptForAppReload(plan, true), false);
 
 const customConfigPlan = planObsidianConfigRefresh(
   [
@@ -73,12 +73,12 @@ assert.equal(settingsOnlyPlan.ownPluginChanged, false);
 assert.equal(shouldAutoApplyPluginRefresh(settingsOnlyPlan, false), false);
 assert.equal(shouldPromptForAppReload(settingsOnlyPlan, true), false);
 
-assert.equal(shouldDeferMobileConfigApply(".obsidian/app.json", ".obsidian", "light-livesync"), true);
-assert.equal(shouldDeferMobileConfigApply(".obsidian/workspace-mobile.json", ".obsidian", "light-livesync"), true);
-assert.equal(shouldDeferMobileConfigApply(".obsidian/community-plugins.json", ".obsidian", "light-livesync"), true);
-assert.equal(shouldDeferMobileConfigApply(".obsidian/plugins/tasks/main.js", ".obsidian", "light-livesync"), true);
-assert.equal(shouldDeferMobileConfigApply(".obsidian/plugins/calendar/data.json", ".obsidian", "light-livesync"), true);
-assert.equal(shouldDeferMobileConfigApply(".obsidian/plugins/calendar/nested/cache.json", ".obsidian", "light-livesync"), true);
+assert.equal(shouldDeferMobileConfigApply(".obsidian/app.json", ".obsidian", "light-livesync"), false);
+assert.equal(shouldDeferMobileConfigApply(".obsidian/workspace-mobile.json", ".obsidian", "light-livesync"), false);
+assert.equal(shouldDeferMobileConfigApply(".obsidian/community-plugins.json", ".obsidian", "light-livesync"), false);
+assert.equal(shouldDeferMobileConfigApply(".obsidian/plugins/tasks/main.js", ".obsidian", "light-livesync"), false);
+assert.equal(shouldDeferMobileConfigApply(".obsidian/plugins/calendar/data.json", ".obsidian", "light-livesync"), false);
+assert.equal(shouldDeferMobileConfigApply(".obsidian/plugins/calendar/nested/cache.json", ".obsidian", "light-livesync"), false);
 assert.equal(shouldDeferMobileConfigApply("notes/plain.md", ".obsidian", "light-livesync"), false);
 
 console.log(JSON.stringify({
@@ -90,6 +90,6 @@ console.log(JSON.stringify({
   ownPluginChanged: plan.ownPluginChanged,
   settingsOnlyDoesNotReload: settingsOnlyPlan.pluginsToReload.length === 0 && settingsOnlyPlan.otherConfigChanged.length > 0,
   mobileAppSettingsDeferred: shouldDeferMobileConfigApply(".obsidian/app.json", ".obsidian", "light-livesync"),
-  mobileAutoReloadPaused: !shouldAutoApplyPluginRefresh(plan, true),
+  automaticPluginReloadDisabled: !shouldAutoApplyPluginRefresh(plan, false) && !shouldAutoApplyPluginRefresh(plan, true),
   reloadPromptShown: shouldPromptForAppReload(plan, true)
 }, null, 2));

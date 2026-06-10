@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   isTextSyncPath,
+  shouldScanLowIntensityConfigFolder,
   shouldScanVaultFolder,
   shouldSyncVaultPath
 } from "../src/vault-scan.ts";
@@ -17,10 +18,14 @@ assert.equal(shouldSyncVaultPath("Notes/hello.md", options), true);
 assert.equal(shouldSyncVaultPath(".obsidian/app.json", options), true);
 assert.equal(shouldSyncVaultPath(".obsidian/community-plugins.json", options), true);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/data.json", options), true);
-assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/manifest.json", options), true);
-assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/main.js", options), true);
 assert.equal(shouldSyncVaultPath("PDFs/example.pdf", options), true);
 
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/manifest.json", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/main.js", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/styles.css", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/manifest.json", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/main.js", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/mobile.css", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/data.json", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/data.json.tmp", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/preview/file.md", options), false);
@@ -42,6 +47,14 @@ assert.equal(shouldScanVaultFolder(".obsidian/plugins/Light-LiveSync/Light-LiveS
 assert.equal(shouldScanVaultFolder(".obsidian/plugins/Light-LiveSync/Light-LiveSync-main/.github", options), false);
 assert.equal(shouldScanVaultFolder(".trash", options), false);
 
+assert.equal(shouldScanLowIntensityConfigFolder(".obsidian", options), true);
+assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/plugins", options), true);
+assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/plugins/other-plugin", options), true);
+assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/plugins/other-plugin/cache", options), false);
+assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/snippets", options), true);
+assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/themes", options), false);
+assert.equal(shouldScanLowIntensityConfigFolder("Notes", options), false);
+
 assert.equal(isTextSyncPath("Daily.md"), true);
 assert.equal(isTextSyncPath("Board.canvas"), true);
 assert.equal(isTextSyncPath("View.base"), true);
@@ -52,7 +65,9 @@ console.log(JSON.stringify({
   ok: true,
   syncsVaultConfig: true,
   excludesOwnVolatileState: true,
+  excludesPluginBundles: true,
   excludesGeneratedFolders: true,
+  lowIntensityConfigScan: true,
   syncsPdfAttachments: true,
   baseFilesAreText: true
 }, null, 2));

@@ -77,6 +77,7 @@ import {
 } from "./session-credential-cache";
 import {
   isTextSyncPath,
+  shouldScanLowIntensityConfigFolder,
   shouldScanVaultFolder,
   shouldSyncVaultPath,
   type VaultSyncPathOptions
@@ -150,7 +151,7 @@ const OBSIDIAN_PLUGIN_REFRESH_MAX_ATTEMPTS = 4;
 const SNAPSHOT_CACHE_MAX_ENTRIES = 96;
 const SNAPSHOT_CACHE_MAX_BYTES = 12 * 1024 * 1024;
 const SNAPSHOT_CACHE_MAX_FILE_BYTES = 2 * 1024 * 1024;
-const CONFIG_FALLBACK_SCAN_INTERVAL_MS = 60 * 1000;
+const CONFIG_FALLBACK_SCAN_INTERVAL_MS = 5 * 60 * 1000;
 
 type SnapshotCacheEntry = {
   snapshot: LocalFileSnapshot;
@@ -194,6 +195,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private approvedMobileReloadSensitiveApplyPaths = new Set<string>();
   private mobileReloadAfterApprovedApply = false;
   private lastMobileDeferredConfigApplyKey = "";
+  private pluginReloadPromptOpen = false;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -330,6 +332,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       mobileApprovedConfigApplyPaths: Array.isArray(loaded?.mobileApprovedConfigApplyPaths)
         ? loaded.mobileApprovedConfigApplyPaths.filter((path): path is string => typeof path === "string")
         : DEFAULT_SETTINGS.mobileApprovedConfigApplyPaths,
+      mobileDeferredConfigPromptKey: loaded?.mobileDeferredConfigPromptKey ?? DEFAULT_SETTINGS.mobileDeferredConfigPromptKey,
       settingsTab: loaded?.settingsTab ?? DEFAULT_SETTINGS.settingsTab
     };
     this.approvedMobileReloadSensitiveApplyPaths = new Set(this.settings.mobileApprovedConfigApplyPaths.map((path) => normalizePath(path)));
@@ -1631,8 +1634,16 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         `Mobile paused ${paths.length} synced Obsidian configuration update${paths.length === 1 ? "" : "s"} before writing files that can reload the app: ${pathListSummary(paths)}.`
       );
     }
+    if (this.settings.mobileDeferredConfigPromptKey === pauseKey) {
+      return;
+    }
     const applyNow = await this.promptForPluginReload(plan, paths, true);
     if (!applyNow) {
+      this.settings = {
+        ...this.settings,
+        mobileDeferredConfigPromptKey: pauseKey
+      };
+      await this.saveSettingsAndReschedule();
       this.log(
         `Paused ${paths.length} synced Obsidian configuration update${paths.length === 1 ? "" : "s"} on mobile because applying them can reload the app. Notes, attachments, and plugin settings data can continue syncing.`
       );
@@ -1645,7 +1656,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.mobileReloadAfterApprovedApply = true;
     this.settings = {
       ...this.settings,
-      mobileApprovedConfigApplyPaths: [...this.approvedMobileReloadSensitiveApplyPaths].sort((left, right) => left.localeCompare(right))
+      mobileApprovedConfigApplyPaths: [...this.approvedMobileReloadSensitiveApplyPaths].sort((left, right) => left.localeCompare(right)),
+      mobileDeferredConfigPromptKey: ""
     };
     await this.saveSettingsAndReschedule();
     this.pendingMobileReloadSensitiveApplyPaths.clear();
@@ -1675,14 +1687,15 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (shouldAutoApplyPluginRefresh(plan, Platform.isMobile)) {
       this.queueDeferredObsidianPluginRefresh(changedPaths);
     } else if (plan.communityPluginsChanged || plan.pluginsToReload.length > 0) {
-      this.log("Synced community plugin changes were written. Automatic plugin reload is paused on mobile to avoid app reload loops.");
+      this.log("Synced community plugin settings were written without reloading the app. Restart Obsidian later if you need plugin enablement changes to take effect immediately.");
     }
     if (Platform.isMobile && this.mobileReloadAfterApprovedApply && hasWork) {
       this.mobileReloadAfterApprovedApply = false;
       this.approvedMobileReloadSensitiveApplyPaths.clear();
       this.settings = {
         ...this.settings,
-        mobileApprovedConfigApplyPaths: []
+        mobileApprovedConfigApplyPaths: [],
+        mobileDeferredConfigPromptKey: ""
       };
       await this.saveSettingsAndReschedule();
       this.log("Reloading the app after applying approved synced plugin/config updates.");
@@ -1719,16 +1732,23 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (!promptKey || this.lastPluginReloadPromptKey === promptKey) {
       return false;
     }
+    if (this.pluginReloadPromptOpen) {
+      return false;
+    }
     this.lastPluginReloadPromptKey = promptKey;
 
+    this.pluginReloadPromptOpen = true;
     const reloadNow = await new PluginReloadPromptModal(this.app, {
-      changedPluginCount: plan.pluginsToReload.length,
-      communityPluginListChanged: plan.communityPluginsChanged,
-      appSettingsChangedCount: plan.appSettingsChanged.length,
-      otherConfigChangedCount: plan.otherConfigChanged.length,
-      ownPluginChanged: plan.ownPluginChanged,
-      pendingApply
-    }).openAndWait();
+        changedPluginCount: plan.pluginsToReload.length,
+        communityPluginListChanged: plan.communityPluginsChanged,
+        appSettingsChangedCount: plan.appSettingsChanged.length,
+        otherConfigChangedCount: plan.otherConfigChanged.length,
+        ownPluginChanged: plan.ownPluginChanged,
+        pendingApply
+      }).openAndWait()
+      .finally(() => {
+        this.pluginReloadPromptOpen = false;
+      });
     if (!reloadNow) {
       this.log("Synced plugin changes are ready. Reload later from the prompt or restart the app when convenient.");
       return false;
@@ -2028,7 +2048,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       this.logProgress("App became active; checking CouchDB for remote changes.", true);
       this.scheduler.request("periodic", true);
       void this.queueRecentlyChangedConfigForSync("Foreground config scan", {
-        minIntervalMs: FOREGROUND_MOBILE_REMOTE_CHECK_INTERVAL_SEC * 1000
+        minIntervalMs: CONFIG_FALLBACK_SCAN_INTERVAL_MS
       }).then((summary) => {
         if ((summary?.pendingPush ?? 0) > 0) {
           this.scheduler.request("vault-change", true);
@@ -2248,7 +2268,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private async updateLocalQueue(summary: LocalStoreSummary): Promise<void> {
     const current = this.settings.localQueue;
-    const shouldClearMobileApproval = summary.pendingApply === 0 && this.settings.mobileApprovedConfigApplyPaths.length > 0;
+    const shouldClearMobileApproval = summary.pendingApply === 0 &&
+      (this.settings.mobileApprovedConfigApplyPaths.length > 0 || !!this.settings.mobileDeferredConfigPromptKey);
     const unchanged =
       current.lastRemoteSeq === summary.lastRemoteSeq &&
       current.files === summary.files &&
@@ -2272,7 +2293,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.settings = {
       ...this.settings,
       localQueue,
-      mobileApprovedConfigApplyPaths: shouldClearMobileApproval ? [] : this.settings.mobileApprovedConfigApplyPaths
+      mobileApprovedConfigApplyPaths: shouldClearMobileApproval ? [] : this.settings.mobileApprovedConfigApplyPaths,
+      mobileDeferredConfigPromptKey: shouldClearMobileApproval ? "" : this.settings.mobileDeferredConfigPromptKey
     };
     if (shouldClearMobileApproval) {
       this.approvedMobileReloadSensitiveApplyPaths.clear();
@@ -2448,9 +2470,6 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       ...this.settings,
       runtime
     };
-    if (details.reason === "startup" && !failed) {
-      this.requestConfigScanAfterSync("Startup config scan", { force: true });
-    }
     if (failed) {
       this.log(`${friendlySyncReason(details.reason)} sync stopped with an issue: ${runtime.lastSyncError || runtime.lastSyncMessage}`);
     } else if (details.result?.ok && details.result.continueSync) {
@@ -2698,7 +2717,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
     for (const childFolder of listed.folders) {
       const path = normalizePath(childFolder);
-      if (this.isConfigSyncPath(path) && shouldScanVaultFolder(path, this.syncPathOptions())) {
+      if (this.isConfigSyncPath(path) && shouldScanLowIntensityConfigFolder(path, this.syncPathOptions())) {
         await this.yieldToUi();
         await this.collectRecentlyChangedConfigPaths(adapter, path, since, paths);
       }

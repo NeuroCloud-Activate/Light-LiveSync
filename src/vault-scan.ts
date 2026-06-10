@@ -36,6 +36,11 @@ const LOCAL_ONLY_FOLDER_NAMES = new Set([
   "light-livesync-main"
 ]);
 
+const LOW_INTENSITY_CONFIG_FOLDERS = new Set([
+  "plugins",
+  "snippets"
+]);
+
 function cleanPath(path: string): string {
   return path.trim().replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/");
 }
@@ -57,6 +62,23 @@ function extensionOf(path: string): string {
   const name = path.split("/").pop() ?? "";
   const dot = name.lastIndexOf(".");
   return dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
+}
+
+function isPluginBundleAsset(path: string, configDir: string): boolean {
+  const cleaned = cleanPath(path);
+  const pluginsDir = `${cleanPath(configDir)}/plugins`;
+  if (!cleaned.startsWith(`${pluginsDir}/`)) {
+    return false;
+  }
+  const rest = cleaned.slice(`${pluginsDir}/`.length);
+  const [, ...parts] = rest.split("/");
+  const pluginPath = parts.join("/");
+  if (!pluginPath || pluginPath.includes("/")) {
+    return false;
+  }
+  return pluginPath === "manifest.json" ||
+    pluginPath.endsWith(".js") ||
+    pluginPath.endsWith(".css");
 }
 
 function localOnlyFolders(options: VaultSyncPathOptions): string[] {
@@ -89,6 +111,37 @@ export function shouldScanVaultFolder(path: string, options: VaultSyncPathOption
   return !localOnlyFolders(options).some((folder) => pathInside(cleaned, folder));
 }
 
+export function shouldScanLowIntensityConfigFolder(path: string, options: VaultSyncPathOptions): boolean {
+  const cleaned = cleanPath(path);
+  const configDir = cleanPath(options.configDir);
+  if (!configDir || !shouldScanVaultFolder(cleaned, options)) {
+    return false;
+  }
+  if (cleaned === configDir) {
+    return true;
+  }
+
+  const relativePath = cleaned.startsWith(`${configDir}/`) ? cleaned.slice(`${configDir}/`.length) : "";
+  if (!relativePath) {
+    return false;
+  }
+
+  const parts = relativePath.split("/");
+  if (parts.length === 1) {
+    return LOW_INTENSITY_CONFIG_FOLDERS.has(parts[0].toLowerCase());
+  }
+
+  if (parts[0].toLowerCase() === "plugins") {
+    return parts.length === 2;
+  }
+
+  if (parts[0].toLowerCase() === "snippets") {
+    return parts.length === 1;
+  }
+
+  return false;
+}
+
 export function shouldSyncVaultPath(path: string, options: VaultSyncPathOptions): boolean {
   const cleaned = cleanPath(path);
   if (!cleaned) {
@@ -100,6 +153,9 @@ export function shouldSyncVaultPath(path: string, options: VaultSyncPathOptions)
     return false;
   }
   if (!shouldScanVaultFolder(cleaned.split("/").slice(0, -1).join("/"), options)) {
+    return false;
+  }
+  if (isPluginBundleAsset(cleaned, options.configDir)) {
     return false;
   }
 

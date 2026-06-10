@@ -69,6 +69,7 @@ export type LightweightLiveSyncSettings = {
   stagingApplyFolder: string;
   conflictFolder: string;
   mobileApprovedConfigApplyPaths: string[];
+  mobileDeferredConfigPromptKey: string;
   remoteState: RemoteInspectionState;
   localQueue: LocalQueueState;
   localPreview: LocalPreviewState;
@@ -251,6 +252,7 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
   stagingApplyFolder: "",
   conflictFolder: "",
   mobileApprovedConfigApplyPaths: [],
+  mobileDeferredConfigPromptKey: "",
   remoteState: {
     lastCheckedAt: 0,
     databaseName: "",

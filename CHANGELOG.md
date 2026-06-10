@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.57
+
+- Stops syncing community plugin bundle files such as `manifest.json`, JavaScript bundles, CSS, and worker assets from `.obsidian/plugins`.
+- Keeps syncing vault content, Obsidian settings, and plugin data/settings files while clearing old pending plugin-bundle remote items as skipped.
+- Reduces fallback configuration scans to a low-intensity 5-minute safety net, limits the scan to likely settings surfaces, and removes the forced startup configuration walk.
+- Prevents synced configuration polling from opening reload prompts or automatically reloading community plugins; settings are written quietly and take effect after a normal restart when Obsidian requires one.
+
+## 0.1.56
+
+- Stops repeated mobile reload prompts for the same paused Obsidian configuration update set after choosing Later.
+- Remembers the quiet paused state across mobile app reloads and only prompts again when the paused configuration file set changes.
+- Prevents overlapping reload prompts when multiple sync paths notice the same paused configuration work.
+
 ## 0.1.55
 
 - Treats every `.obsidian` update as reload-sensitive on mobile, including plugin `data.json` settings, so iPadOS cannot reload while ordinary vault files are still applying.
