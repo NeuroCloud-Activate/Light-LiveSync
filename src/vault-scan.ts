@@ -41,6 +41,17 @@ const LOW_INTENSITY_CONFIG_FOLDERS = new Set([
   "snippets"
 ]);
 
+const TOP_LEVEL_RUNTIME_CONFIG_FILES = new Set([
+  "app.json",
+  "appearance.json",
+  "community-plugins.json",
+  "core-plugins.json",
+  "core-plugins-migration.json",
+  "graph.json",
+  "hotkeys.json",
+  "types.json"
+]);
+
 function cleanPath(path: string): string {
   return path.trim().replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/");
 }
@@ -79,6 +90,23 @@ function isPluginBundleAsset(path: string, configDir: string): boolean {
   return pluginPath === "manifest.json" ||
     pluginPath.endsWith(".js") ||
     pluginPath.endsWith(".css");
+}
+
+function isRuntimeObsidianConfigFile(path: string, configDir: string): boolean {
+  const cleaned = cleanPath(path);
+  const normalizedConfigDir = cleanPath(configDir);
+  if (!normalizedConfigDir || !cleaned.startsWith(`${normalizedConfigDir}/`)) {
+    return false;
+  }
+
+  const relativePath = cleaned.slice(`${normalizedConfigDir}/`.length);
+  if (!relativePath || relativePath.includes("/")) {
+    return false;
+  }
+
+  const lowerPath = relativePath.toLowerCase();
+  return TOP_LEVEL_RUNTIME_CONFIG_FILES.has(lowerPath) ||
+    /^workspace.*\.json$/i.test(relativePath);
 }
 
 function localOnlyFolders(options: VaultSyncPathOptions): string[] {
@@ -153,6 +181,9 @@ export function shouldSyncVaultPath(path: string, options: VaultSyncPathOptions)
     return false;
   }
   if (!shouldScanVaultFolder(cleaned.split("/").slice(0, -1).join("/"), options)) {
+    return false;
+  }
+  if (isRuntimeObsidianConfigFile(cleaned, options.configDir)) {
     return false;
   }
   if (isPluginBundleAsset(cleaned, options.configDir)) {

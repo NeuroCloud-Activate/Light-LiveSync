@@ -15,11 +15,14 @@ const options = {
 };
 
 assert.equal(shouldSyncVaultPath("Notes/hello.md", options), true);
-assert.equal(shouldSyncVaultPath(".obsidian/app.json", options), true);
-assert.equal(shouldSyncVaultPath(".obsidian/community-plugins.json", options), true);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/data.json", options), true);
 assert.equal(shouldSyncVaultPath("PDFs/example.pdf", options), true);
 
+assert.equal(shouldSyncVaultPath(".obsidian/app.json", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/appearance.json", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/community-plugins.json", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/hotkeys.json", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/workspace-mobile.json", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/manifest.json", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/main.js", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/styles.css", options), false);
@@ -63,7 +66,8 @@ assert.equal(isTextSyncPath("image.png"), false);
 
 console.log(JSON.stringify({
   ok: true,
-  syncsVaultConfig: true,
+  syncsPluginSettings: true,
+  excludesRuntimeConfig: true,
   excludesOwnVolatileState: true,
   excludesPluginBundles: true,
   excludesGeneratedFolders: true,

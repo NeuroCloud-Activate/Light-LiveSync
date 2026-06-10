@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.58
+
+- Stops syncing top-level Obsidian runtime configuration files such as app settings, workspaces, hotkeys, and the community plugin enablement list during live sync.
+- Keeps syncing ordinary vault files, attachments, CSS snippets, and community plugin data/settings files while excluding plugin bundles and runtime config that can destabilize a running Obsidian session.
+- Further reduces configuration polling churn by preventing runtime config changes from being queued for upload or live apply.
+
 ## 0.1.57
 
 - Stops syncing community plugin bundle files such as `manifest.json`, JavaScript bundles, CSS, and worker assets from `.obsidian/plugins`.
