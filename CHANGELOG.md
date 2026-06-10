@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.49
+
+- Cleans up an Obsidian source review warning by using a typed own-property check in the plugin manager refresh path.
+
 ## 0.1.48
 
 - Stops synced plugin settings files from forcing automatic community-plugin reloads on mobile.

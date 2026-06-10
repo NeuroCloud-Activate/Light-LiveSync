@@ -131,7 +131,7 @@ function applyReasonSummary(label: string, reasons: string[]): string {
 }
 
 function hasRecordKey(record: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, key);
+  return Object.hasOwn(record, key);
 }
 
 const FAST_CONFIG_SYNC_DELAY_MS = 2000;
