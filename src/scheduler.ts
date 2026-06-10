@@ -6,6 +6,7 @@ export type SchedulerEngine = {
 
 export type SchedulerHost = {
   getMinimumIntervalMs(reason: SyncReason): number;
+  getContinuationDelayMs?(reason: SyncReason): number;
   getFailureCooldownMs?(): number;
   log(message: string): void;
   setStatus(message: string): void;
@@ -80,6 +81,10 @@ export class SyncScheduler {
     }
   }
 
+  private continuationDelay(reason: SyncReason): number {
+    return Math.max(0, this.host.getContinuationDelayMs?.(reason) ?? 0);
+  }
+
   private async runQueued(): Promise<void> {
     if (this.running) {
       return;
@@ -105,7 +110,7 @@ export class SyncScheduler {
           this.host.setStatus("Syncing");
           this.host.log("More sync work is still queued, so Light-LiveSync will continue with another sync pass automatically.");
           this.queuedReason = reason;
-          continueWithoutDelay = true;
+          continueWithoutDelay = false;
         } else {
           this.host.setStatus(result.message);
         }
@@ -121,7 +126,9 @@ export class SyncScheduler {
       }
 
       if (this.queuedReason) {
-        const delay = continueWithoutDelay ? 0 : this.delayUntilNextAllowedRun(this.queuedReason);
+        const delay = continueWithoutDelay
+          ? 0
+          : Math.max(this.delayUntilNextAllowedRun(this.queuedReason), this.continuationDelay(this.queuedReason));
         if (delay > 0) {
           await new Promise((resolve) => window.setTimeout(resolve, delay));
         }

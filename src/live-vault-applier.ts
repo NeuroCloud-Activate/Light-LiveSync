@@ -31,6 +31,7 @@ type LiveVaultApplyOptions = {
   markAppliedBeforeApplyPath?(path: string): boolean;
   markAppliedIds?(ids: string[]): Promise<void>;
   yieldToUi?(): Promise<void>;
+  settleAfterApply?(): Promise<void>;
 };
 
 type JsonSettingsMergeResult = {
@@ -334,7 +335,7 @@ async function applyReadyPreview(
 async function applyPreview(
   vault: LiveVaultTarget,
   preview: ReconstructedDocumentPreview,
-  options: Pick<LiveVaultApplyOptions, "configDir" | "shouldApplyPath" | "deferApplyPath" | "markAppliedBeforeApplyPath" | "markAppliedIds">,
+  options: Pick<LiveVaultApplyOptions, "configDir" | "shouldApplyPath" | "deferApplyPath" | "markAppliedBeforeApplyPath" | "markAppliedIds" | "settleAfterApply">,
   result: MutableLiveVaultApplyResult
 ): Promise<void> {
   const targetPath = safeVaultPath(preview.path);
@@ -372,11 +373,15 @@ async function applyPreview(
   }
 
   await ensureParentFolder(vault.adapter, targetPath);
+  const changedBefore = result.changedPaths.length;
   if (preview.status === "deleted") {
     await applyDeletedPreview(vault, preview, targetPath, result);
-    return;
+  } else {
+    await applyReadyPreview(vault, preview, targetPath, options.configDir, result);
   }
-  await applyReadyPreview(vault, preview, targetPath, options.configDir, result);
+  if (result.changedPaths.length > changedBefore) {
+    await options.settleAfterApply?.();
+  }
 }
 
 export async function applyReadyPreviewsToLiveVault(

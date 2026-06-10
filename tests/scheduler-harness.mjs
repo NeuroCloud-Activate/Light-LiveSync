@@ -96,7 +96,8 @@ const continuationScheduler = new SyncScheduler(
     }
   },
   {
-    getMinimumIntervalMs: () => 1000,
+    getMinimumIntervalMs: () => 0,
+    getContinuationDelayMs: () => 40,
     log: (message) => continueLogs.push(message),
     setStatus: () => {}
   }
@@ -104,6 +105,8 @@ const continuationScheduler = new SyncScheduler(
 
 continuationScheduler.request("manual", true);
 await new Promise((resolve) => setTimeout(resolve, 30));
+assert.equal(continuationCalls, 1);
+await new Promise((resolve) => setTimeout(resolve, 40));
 assert.equal(continuationCalls, 2);
 assert.match(continueLogs.join(" "), /continue with another sync pass/);
 

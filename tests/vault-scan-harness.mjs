@@ -16,6 +16,9 @@ const options = {
 
 assert.equal(shouldSyncVaultPath("Notes/hello.md", options), true);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/data.json", options), true);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/settings.json", options), true);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/custom-settings.json", options), true);
+assert.equal(shouldSyncVaultPath(".obsidian/snippets/readable.css", options), true);
 assert.equal(shouldSyncVaultPath("PDFs/example.pdf", options), true);
 
 assert.equal(shouldSyncVaultPath(".obsidian/app.json", options), false);
@@ -29,6 +32,10 @@ assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/styles.css", 
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/manifest.json", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/main.js", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/mobile.css", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/cache.json", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/activity-log.json", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/history.json", options), false);
+assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/nested/settings.json", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/data.json", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/data.json.tmp", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/plugins/light-livesync/preview/file.md", options), false);

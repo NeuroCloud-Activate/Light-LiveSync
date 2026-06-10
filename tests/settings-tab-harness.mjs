@@ -97,7 +97,7 @@ function render(settingsPatch) {
   return tab.containerEl.textContent;
 }
 
-assert.equal(DEFAULT_SETTINGS.maxStorageApplyConcurrency, 50);
+assert.equal(DEFAULT_SETTINGS.maxStorageApplyConcurrency, 3);
 
 const unconfigured = render({
   runtime: {

@@ -52,6 +52,16 @@ const TOP_LEVEL_RUNTIME_CONFIG_FILES = new Set([
   "types.json"
 ]);
 
+const NOISY_CONFIG_FILE_PATTERNS = [
+  /(^|[-_.])cache(s)?([-_.]|$)/i,
+  /(^|[-_.])log(s)?([-_.]|$)/i,
+  /(^|[-_.])history([-_.]|$)/i,
+  /(^|[-_.])state([-_.]|$)/i,
+  /(^|[-_.])tmp([-_.]|$)/i,
+  /(^|[-_.])temp([-_.]|$)/i,
+  /(^|[-_.])backup(s)?([-_.]|$)/i
+];
+
 function cleanPath(path: string): string {
   return path.trim().replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/");
 }
@@ -107,6 +117,34 @@ function isRuntimeObsidianConfigFile(path: string, configDir: string): boolean {
   const lowerPath = relativePath.toLowerCase();
   return TOP_LEVEL_RUNTIME_CONFIG_FILES.has(lowerPath) ||
     /^workspace.*\.json$/i.test(relativePath);
+}
+
+function isLikelyManualConfigSyncFile(path: string, configDir: string): boolean {
+  const cleaned = cleanPath(path);
+  const normalizedConfigDir = cleanPath(configDir);
+  if (!normalizedConfigDir || !cleaned.startsWith(`${normalizedConfigDir}/`)) {
+    return true;
+  }
+  if (isRuntimeObsidianConfigFile(cleaned, normalizedConfigDir)) {
+    return false;
+  }
+
+  const relativePath = cleaned.slice(`${normalizedConfigDir}/`.length);
+  const parts = relativePath.split("/");
+  const filename = parts.at(-1) ?? "";
+  if (!filename || NOISY_CONFIG_FILE_PATTERNS.some((pattern) => pattern.test(filename))) {
+    return false;
+  }
+
+  if (parts[0]?.toLowerCase() === "snippets") {
+    return parts.length === 2 && filename.toLowerCase().endsWith(".css");
+  }
+
+  if (parts[0]?.toLowerCase() === "plugins") {
+    return parts.length === 3 && filename.toLowerCase().endsWith(".json");
+  }
+
+  return false;
 }
 
 function localOnlyFolders(options: VaultSyncPathOptions): string[] {
@@ -183,7 +221,7 @@ export function shouldSyncVaultPath(path: string, options: VaultSyncPathOptions)
   if (!shouldScanVaultFolder(cleaned.split("/").slice(0, -1).join("/"), options)) {
     return false;
   }
-  if (isRuntimeObsidianConfigFile(cleaned, options.configDir)) {
+  if (!isLikelyManualConfigSyncFile(cleaned, options.configDir)) {
     return false;
   }
   if (isPluginBundleAsset(cleaned, options.configDir)) {

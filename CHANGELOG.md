@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.59
+
+- Emergency desktop stability release: caps automatic remote apply to 3 files per pass so sync cannot write large bursts into the running vault.
+- Adds a short pause between automatic continuation passes and a small UI settle delay between sync operations to avoid overwhelming the Obsidian renderer.
+- Applies the safer cap to existing installs that still had the older 50-file remote apply setting.
+- Narrows configuration syncing to likely user/plugin settings such as top-level plugin JSON files and CSS snippets, while excluding logs, caches, history, temporary files, nested generated state, runtime config, and plugin bundles.
+
 ## 0.1.58
 
 - Stops syncing top-level Obsidian runtime configuration files such as app settings, workspaces, hotkeys, and the community plugin enablement list during live sync.

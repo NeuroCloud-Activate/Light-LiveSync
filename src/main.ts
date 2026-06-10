@@ -152,6 +152,9 @@ const SNAPSHOT_CACHE_MAX_ENTRIES = 96;
 const SNAPSHOT_CACHE_MAX_BYTES = 12 * 1024 * 1024;
 const SNAPSHOT_CACHE_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const CONFIG_FALLBACK_SCAN_INTERVAL_MS = 5 * 60 * 1000;
+const MAX_AUTOMATIC_APPLY_BATCH_FILES = 3;
+const SYNC_CONTINUATION_DELAY_MS = 3000;
+const APPLY_SETTLE_DELAY_MS = 16;
 
 type SnapshotCacheEntry = {
   snapshot: LocalFileSnapshot;
@@ -224,6 +227,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
     this.scheduler = new SyncScheduler(this.engine, {
       getMinimumIntervalMs: (reason) => this.minimumIntervalMsForSyncReason(reason),
+      getContinuationDelayMs: () => SYNC_CONTINUATION_DELAY_MS,
       getFailureCooldownMs: () => this.settings.syncFailureCooldownSec * 1000,
       log: (message) => this.log(message),
       setStatus: (message) => this.setStatus(message),
@@ -339,7 +343,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (loaded?.maxPushChangesPerSync === undefined || loaded.maxPushChangesPerSync <= 4) {
       this.settings.maxPushChangesPerSync = DEFAULT_SETTINGS.maxPushChangesPerSync;
     }
-    if (loaded?.maxStorageApplyConcurrency === undefined || loaded.maxStorageApplyConcurrency <= 25) {
+    if (loaded?.maxStorageApplyConcurrency === undefined || loaded.maxStorageApplyConcurrency > MAX_AUTOMATIC_APPLY_BATCH_FILES) {
       this.settings.maxStorageApplyConcurrency = DEFAULT_SETTINGS.maxStorageApplyConcurrency;
     }
     if (loaded?.periodicSyncIntervalSec === undefined || loaded.periodicSyncIntervalSec > DEFAULT_REMOTE_CHECK_INTERVAL_SEC) {
@@ -1452,7 +1456,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       yieldToUi: () => this.yieldToUi(),
       loadMissingChunks: (ids) => this.loadAndCacheMissingChunks(store, client, ids)
     });
-    const summary = await reconstructor.previewPending(Math.max(this.applyBatchLimit(), 250));
+    const summary = await reconstructor.previewPending(this.applyBatchLimit());
     await this.updateLocalPreview(summary);
     if (summary.previews.length === 0) {
       return true;
@@ -1534,8 +1538,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     context: PullOperationContext,
     limit: number
   ): Promise<LiveVaultApplyResult> {
-    const previewLimit = Platform.isMobile ? Math.max(limit, 250) : limit;
-    const summary = await context.reconstructor.previewPending(previewLimit);
+    const summary = await context.reconstructor.previewPending(limit);
     const previews = this.orderPreviewsForMobileApply(summary.previews);
     await this.updateLocalPreview(summary);
     const markedApplyIds = new Set<string>();
@@ -1555,7 +1558,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
           markedApplyIds.add(id);
         }
       },
-      yieldToUi: () => this.yieldToUi()
+      yieldToUi: () => this.yieldToUi(),
+      settleAfterApply: () => this.settleAfterVaultWrite()
     }));
     const remainingAppliedIds = [...result.appliedIds, ...result.skippedIds].filter((id) => !markedApplyIds.has(id));
     if (remainingAppliedIds.length > 0) {
@@ -1973,7 +1977,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private applyBatchLimit(): number {
-    return Math.max(1, Math.round(this.settings.maxStorageApplyConcurrency || DEFAULT_SETTINGS.maxStorageApplyConcurrency));
+    return Math.max(1, Math.min(
+      MAX_AUTOMATIC_APPLY_BATCH_FILES,
+      Math.round(this.settings.maxStorageApplyConcurrency || DEFAULT_SETTINGS.maxStorageApplyConcurrency)
+    ));
   }
 
   private async withSuppressedVaultEvents<T>(operation: () => Promise<T>): Promise<T> {
@@ -2155,6 +2162,18 @@ export default class LightweightLiveSyncPlugin extends Plugin {
         return;
       }
       window.setTimeout(resolve, 0);
+    });
+  }
+
+  private settleAfterVaultWrite(): Promise<void> {
+    return new Promise((resolve) => {
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => {
+          window.setTimeout(resolve, APPLY_SETTLE_DELAY_MS);
+        });
+        return;
+      }
+      window.setTimeout(resolve, APPLY_SETTLE_DELAY_MS);
     });
   }
 

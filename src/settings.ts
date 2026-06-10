@@ -241,7 +241,7 @@ export const DEFAULT_SETTINGS: LightweightLiveSyncSettings = {
   syncFailureCooldownSec: 120,
   periodicSyncIntervalSec: DEFAULT_REMOTE_CHECK_INTERVAL_SEC,
   minimumSyncIntervalMs: 5000,
-  maxStorageApplyConcurrency: 50,
+  maxStorageApplyConcurrency: 3,
   maxChunkFetchConcurrency: 8,
   versioningEnabled: true,
   maxVersionsPerFile: 10,
