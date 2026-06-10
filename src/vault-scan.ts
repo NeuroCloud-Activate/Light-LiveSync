@@ -31,6 +31,7 @@ const JUNK_FILENAMES = new Set([
 const LOCAL_ONLY_FOLDER_NAMES = new Set([
   ".git",
   ".github",
+  ".light-livesync",
   ".repowise",
   "node_modules",
   "light-livesync-main"

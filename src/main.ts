@@ -131,6 +131,7 @@ const CONFIG_FALLBACK_SCAN_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_AUTOMATIC_APPLY_BATCH_FILES = 3;
 const REMOTE_APPLY_LOOKAHEAD_FILES = 100;
 const EXCLUDED_REMOTE_APPLY_CLEANUP_LIMIT = 500;
+const LOCAL_RUNTIME_FOLDER = ".light-livesync";
 const SYNC_CONTINUATION_DELAY_MS = 3000;
 const APPLY_SETTLE_DELAY_MS = 16;
 
@@ -169,6 +170,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private mobilePluginSettingsReloadPromptOpen = false;
   private lastConfigFallbackScanAt = 0;
   private configFallbackScanPromise?: Promise<LocalStoreSummary | undefined>;
+  private syncRunning = false;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -324,8 +326,24 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (loaded?.minimumSyncIntervalMs === undefined || loaded.minimumSyncIntervalMs >= 30000) {
       this.settings.minimumSyncIntervalMs = DEFAULT_SETTINGS.minimumSyncIntervalMs;
     }
+    this.clearLegacyObsidianRuntimeFolderDefaults();
     if (Platform.isMobile && !this.settings.couchDb.useRequestApi) {
       this.settings.couchDb.useRequestApi = true;
+    }
+  }
+
+  private clearLegacyObsidianRuntimeFolderDefaults(): void {
+    const legacyBase = normalizePath(`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+    const isLegacyRuntimeFolder = (path: string, leaf: string): boolean =>
+      !!path && normalizePath(path) === normalizePath(`${legacyBase}/${leaf}`);
+    if (isLegacyRuntimeFolder(this.settings.previewExportFolder, "preview")) {
+      this.settings.previewExportFolder = "";
+    }
+    if (isLegacyRuntimeFolder(this.settings.stagingApplyFolder, "staging")) {
+      this.settings.stagingApplyFolder = "";
+    }
+    if (isLegacyRuntimeFolder(this.settings.conflictFolder, "conflicts")) {
+      this.settings.conflictFolder = "";
     }
   }
 
@@ -1499,7 +1517,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       result.skipped += clearedExcluded.ids.length;
       result.skippedReasons.push(...clearedExcluded.reasons);
       this.log(
-        `Cleared ${clearedExcluded.ids.length} old pulled Obsidian configuration item${clearedExcluded.ids.length === 1 ? "" : "s"} that are outside the current sync allow-list.`
+        `Cleared ${clearedExcluded.ids.length} pulled Obsidian configuration item${clearedExcluded.ids.length === 1 ? "" : "s"} that are not safe to live-apply.`
       );
     }
     const remainingAppliedIds = [...result.appliedIds, ...result.skippedIds].filter((id) => !markedApplyIds.has(id));
@@ -1540,7 +1558,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       }
       ids.push(cached.id);
       if (reasons.length < 10) {
-        reasons.push(`${path}: Excluded from sync.`);
+        reasons.push(`${path}: Not safe to live-apply while the app is running.`);
       }
     }
     if (ids.length > 0) {
@@ -1566,7 +1584,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     }
     if (normal.length > 0 && excludedConfig.length > 0) {
       this.log(
-        `Applying ${normal.length} syncable remote update${normal.length === 1 ? "" : "s"} before clearing ${excludedConfig.length} excluded Obsidian configuration update${excludedConfig.length === 1 ? "" : "s"}.`
+        `Applying ${normal.length} ordinary remote update${normal.length === 1 ? "" : "s"} before clearing ${excludedConfig.length} unsafe live configuration update${excludedConfig.length === 1 ? "" : "s"}.`
       );
     }
     return [...normal, ...excludedConfig];
@@ -2030,6 +2048,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private recordSyncStart(reason: string, startedAt: number): void {
+    this.syncRunning = true;
     this.lastProgressLogAt = 0;
     this.clearCompletedStatusTimer();
     this.statusUploadRate = "0";
@@ -2052,7 +2071,6 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     };
     this.setStatus("Syncing");
     this.log(`${friendlySyncReason(reason)} sync started.`);
-    this.scheduleRuntimeDiagnosticsSave(250);
   }
 
   private async markInterruptedSyncIfNeeded(): Promise<void> {
@@ -2086,6 +2104,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     result?: SyncOutcome;
     errorMessage?: string;
   }): void {
+    this.syncRunning = false;
     const failed = !!details.errorMessage || details.result?.ok === false;
     const runtime: RuntimeDiagnosticsState = {
       ...this.settings.runtime,
@@ -2121,10 +2140,16 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private async saveRuntimeDiagnostics(): Promise<void> {
     this.clearRuntimeDiagnosticsSaveTimer();
+    if (this.syncRunning) {
+      return;
+    }
     await this.saveData(settingsForDisk(this.settings));
   }
 
   private scheduleRuntimeDiagnosticsSave(delayMs = 1500): void {
+    if (this.syncRunning) {
+      return;
+    }
     if (this.runtimeDiagnosticsSaveTimer !== undefined) {
       return;
     }
@@ -2532,7 +2557,11 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private shouldApplyRemotePath(path: string): boolean {
-    return shouldApplyRemoteVaultPath(path, this.syncPathOptions());
+    const normalizedPath = normalizePath(path);
+    if (Platform.isDesktopApp && this.isConfigSyncPath(normalizedPath)) {
+      return false;
+    }
+    return shouldApplyRemoteVaultPath(normalizedPath, this.syncPathOptions());
   }
 
   private syncPathOptions(): VaultSyncPathOptions {
@@ -2595,21 +2624,21 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (this.settings.previewExportFolder) {
       return this.settings.previewExportFolder.replace(/^\/+|\/+$/g, "");
     }
-    return `${this.app.vault.configDir}/plugins/${this.manifest.id}/preview`;
+    return `${LOCAL_RUNTIME_FOLDER}/preview`;
   }
 
   private stagingApplyFolder(): string {
     if (this.settings.stagingApplyFolder) {
       return this.settings.stagingApplyFolder.replace(/^\/+|\/+$/g, "");
     }
-    return `${this.app.vault.configDir}/plugins/${this.manifest.id}/staging`;
+    return `${LOCAL_RUNTIME_FOLDER}/staging`;
   }
 
   private conflictFolder(): string {
     if (this.settings.conflictFolder) {
       return this.settings.conflictFolder.replace(/^\/+|\/+$/g, "");
     }
-    return `${this.app.vault.configDir}/plugins/${this.manifest.id}/conflicts`;
+    return `${LOCAL_RUNTIME_FOLDER}/conflicts`;
   }
 
   private documentTransformOptions() {

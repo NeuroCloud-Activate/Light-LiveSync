@@ -15,6 +15,7 @@ It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmr
 - Includes hidden ordinary vault files in automatic and manual full-vault checks while keeping active app configuration out of the sync path for stability.
 - Restores saved credentials automatically on app start so mobile sync can resume without a repeated credential prompt.
 - Syncs other plugins' top-level user settings/data JSON files, but excludes active app configuration, plugin bundles, generated plugin state, and Light-LiveSync's own folder.
+- Keeps its own preview, staging, and recovery backup files outside `.obsidian` by default so normal sync recovery work does not churn active plugin folders.
 - Uses 15-second lightweight CouchDB checkpoint checks on desktop and foreground mobile, so other-device edits are picked up faster without repeatedly scanning the vault.
 - Uses periodic sync as a fallback when mobile backgrounding, sleep, or missed file events get in the way.
 - Automatically merges ordinary text edits and creates safety backups before overwrites, merges, deletes, or version restores.
@@ -162,6 +163,7 @@ The plugin is optimized around minimal work and minimal data movement.
 - Reconstructs binary attachments from their encrypted chunks one piece at a time, so large PDFs do not fail when they span multiple CouchDB documents.
 - Lightweight remote checks run every 15 seconds by default on desktop and foreground mobile.
 - Periodic plugin-settings fallback scans are throttled separately, so fast polling does not repeatedly walk active app configuration.
+- Desktop does not live-write pulled plugin settings into `.obsidian/plugins` during background sync; this avoids destabilizing a running app session while ordinary vault content continues syncing.
 - Remote changes apply in batches with recovery backups.
 - Previous-file versions reuse existing encrypted CouchDB chunks instead of uploading a separate full copy for every version.
 - Idle periodic checks reuse the saved CouchDB setup and skip extra remote inspection when the local checkpoint and sync parameters are already known.

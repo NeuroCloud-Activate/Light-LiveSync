@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.62
+
+- Moves default preview, staging, and recovery backup folders out of `.obsidian` to `.light-livesync/`, preventing ordinary file apply from writing bursts into the active plugin directory.
+- Stops Desktop from live-applying pulled `.obsidian` plugin settings/data while the app is running; those remote configuration items are cleared as unsafe to live-apply instead of being written into active plugin folders.
+- Defers diagnostic/activity-log persistence until after sync finishes, reducing writes to Light-LiveSync's own plugin data during upload/download/apply work.
+
 ## 0.1.61
 
 - Hardens the `.obsidian` sync boundary for desktop stability: only top-level user settings/data JSON files inside `.obsidian/plugins/<other-plugin>/` are syncable.
