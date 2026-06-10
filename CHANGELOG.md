@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.52
+
+- Stops automatic community-plugin reloads on mobile after synced `.obsidian` updates, preventing repeated iPadOS app reload loops.
+- Keeps synced app and plugin settings flowing normally; mobile now asks before reloading when plugin bundles or enablement change.
+
 ## 0.1.51
 
 - Fixes encrypted background-worker uploads by using worker-safe base64 helpers instead of window-only base64 APIs.

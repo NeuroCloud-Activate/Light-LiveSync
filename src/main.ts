@@ -3,7 +3,8 @@ import { decryptCredentialPayload, encryptCredentialPayload } from "./credential
 import { DocumentReconstructor, type ReconstructionBatchSummary } from "./document-reconstructor";
 import { applyReadyPreviewsToLiveVault, type LiveVaultApplyResult } from "./live-vault-applier";
 import { exportReadyPreviews } from "./preview-exporter";
-import { planObsidianConfigRefresh } from "./obsidian-config-refresh";
+import { planObsidianConfigRefresh, shouldAutoApplyPluginRefresh, shouldPromptForAppReload } from "./obsidian-config-refresh";
+import { PluginReloadPromptModal } from "./plugin-reload-prompt-modal";
 import { ServerCredentialsModal } from "./server-credentials-modal";
 import { applyReadyPreviewsToStaging, type StagingApplyResult } from "./staging-applier";
 import { DirectCouchDbSetupModal } from "./direct-setup-modal";
@@ -182,6 +183,7 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private pendingObsidianPluginRefreshPaths = new Set<string>();
   private lastConfigFallbackScanAt = 0;
   private configFallbackScanPromise?: Promise<LocalStoreSummary | undefined>;
+  private lastPluginReloadPromptKey = "";
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -1516,12 +1518,47 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     if (plan.appSettingsChanged.length > 0) {
       this.notifyObsidianSettingsChanged(plan.appSettingsChanged);
     }
-    if (plan.communityPluginsChanged || plan.pluginsToReload.length > 0) {
+    if (shouldAutoApplyPluginRefresh(plan, Platform.isMobile)) {
       this.queueDeferredObsidianPluginRefresh(changedPaths);
+    } else if (plan.communityPluginsChanged || plan.pluginsToReload.length > 0) {
+      this.log("Synced community plugin changes were written. Automatic plugin reload is paused on mobile to avoid app reload loops.");
     }
-    if (plan.ownPluginChanged) {
+    if (shouldPromptForAppReload(plan, Platform.isMobile)) {
+      await this.promptForPluginReload(plan, changedPaths);
+    } else if (plan.ownPluginChanged) {
       this.log("Synced Light-LiveSync plugin files changed. Reload the app or disable/enable Light-LiveSync to use the new plugin bundle.");
     }
+  }
+
+  private async promptForPluginReload(
+    plan: ReturnType<typeof planObsidianConfigRefresh>,
+    changedPaths: string[]
+  ): Promise<void> {
+    const promptKey = [
+      plan.communityPluginsChanged ? "community" : "",
+      plan.ownPluginChanged ? "own" : "",
+      ...plan.pluginsToReload,
+      ...changedPaths.map((path) => normalizePath(path)).sort()
+    ].filter(Boolean).join("|");
+    if (!promptKey || this.lastPluginReloadPromptKey === promptKey) {
+      return;
+    }
+    this.lastPluginReloadPromptKey = promptKey;
+
+    const reloadNow = await new PluginReloadPromptModal(this.app, {
+      changedPluginCount: plan.pluginsToReload.length,
+      communityPluginListChanged: plan.communityPluginsChanged,
+      ownPluginChanged: plan.ownPluginChanged
+    }).openAndWait();
+    if (!reloadNow) {
+      this.log("Synced plugin changes are ready. Reload later from the prompt or restart the app when convenient.");
+      return;
+    }
+
+    this.log("Reloading the app after synced plugin changes, as requested.");
+    window.setTimeout(() => {
+      window.location.reload();
+    }, 100);
   }
 
   private notifyObsidianSettingsChanged(paths: string[]): void {
@@ -1589,6 +1626,9 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private async applyDeferredObsidianPluginRefresh(changedPaths: string[]): Promise<boolean> {
     const plan = planObsidianConfigRefresh(changedPaths, this.app.vault.configDir, this.manifest.id);
+    if (!shouldAutoApplyPluginRefresh(plan, Platform.isMobile)) {
+      return false;
+    }
     const pluginManager = (this.app as unknown as { plugins?: ObsidianPluginManager }).plugins;
     let shouldRetry = false;
     if (plan.communityPluginsChanged) {

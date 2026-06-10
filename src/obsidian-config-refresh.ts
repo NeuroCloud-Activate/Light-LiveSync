@@ -83,3 +83,14 @@ export function planObsidianConfigRefresh(
     ownPluginChanged
   };
 }
+
+export function shouldAutoApplyPluginRefresh(plan: ObsidianConfigRefreshPlan, isMobile: boolean): boolean {
+  if (isMobile) {
+    return false;
+  }
+  return plan.communityPluginsChanged || plan.pluginsToReload.length > 0;
+}
+
+export function shouldPromptForAppReload(plan: ObsidianConfigRefreshPlan, isMobile: boolean): boolean {
+  return plan.ownPluginChanged || (isMobile && (plan.communityPluginsChanged || plan.pluginsToReload.length > 0));
+}

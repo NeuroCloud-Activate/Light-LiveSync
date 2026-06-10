@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { planObsidianConfigRefresh } from "../src/obsidian-config-refresh.ts";
+import {
+  planObsidianConfigRefresh,
+  shouldAutoApplyPluginRefresh,
+  shouldPromptForAppReload
+} from "../src/obsidian-config-refresh.ts";
 
 const plan = planObsidianConfigRefresh(
   [
@@ -22,6 +26,10 @@ assert.equal(plan.communityPluginsChanged, true);
 assert.deepEqual(plan.appSettingsChanged, [".obsidian/app.json", ".obsidian/appearance.json"]);
 assert.deepEqual(plan.pluginsToReload, ["tasks"]);
 assert.equal(plan.ownPluginChanged, true);
+assert.equal(shouldAutoApplyPluginRefresh(plan, false), true);
+assert.equal(shouldAutoApplyPluginRefresh(plan, true), false);
+assert.equal(shouldPromptForAppReload(plan, false), true);
+assert.equal(shouldPromptForAppReload(plan, true), true);
 
 const customConfigPlan = planObsidianConfigRefresh(
   [
@@ -54,6 +62,8 @@ assert.equal(settingsOnlyPlan.communityPluginsChanged, false);
 assert.deepEqual(settingsOnlyPlan.appSettingsChanged, []);
 assert.deepEqual(settingsOnlyPlan.pluginsToReload, []);
 assert.equal(settingsOnlyPlan.ownPluginChanged, false);
+assert.equal(shouldAutoApplyPluginRefresh(settingsOnlyPlan, false), false);
+assert.equal(shouldPromptForAppReload(settingsOnlyPlan, true), false);
 
 console.log(JSON.stringify({
   ok: true,
@@ -61,5 +71,7 @@ console.log(JSON.stringify({
   pluginsToReload: plan.pluginsToReload,
   appSettingsChanged: plan.appSettingsChanged,
   ownPluginChanged: plan.ownPluginChanged,
-  settingsOnlyDoesNotReload: settingsOnlyPlan.pluginsToReload.length === 0
+  settingsOnlyDoesNotReload: settingsOnlyPlan.pluginsToReload.length === 0,
+  mobileAutoReloadPaused: !shouldAutoApplyPluginRefresh(plan, true),
+  reloadPromptShown: shouldPromptForAppReload(plan, true)
 }, null, 2));
