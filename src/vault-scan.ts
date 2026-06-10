@@ -36,17 +36,6 @@ const LOCAL_ONLY_FOLDER_NAMES = new Set([
   "light-livesync-main"
 ]);
 
-const TOP_LEVEL_RUNTIME_CONFIG_FILES = new Set([
-  "app.json",
-  "appearance.json",
-  "community-plugins.json",
-  "core-plugins.json",
-  "core-plugins-migration.json",
-  "graph.json",
-  "hotkeys.json",
-  "types.json"
-]);
-
 const NOISY_CONFIG_FILE_PATTERNS = [
   /(^|[-_.])cache(s)?([-_.]|$)/i,
   /(^|[-_.])log(s)?([-_.]|$)/i,
@@ -97,40 +86,11 @@ function isPluginBundleAsset(path: string, configDir: string): boolean {
     pluginPath.endsWith(".css");
 }
 
-function isRuntimeObsidianConfigFile(path: string, configDir: string): boolean {
-  const cleaned = cleanPath(path);
-  const normalizedConfigDir = cleanPath(configDir);
-  if (!normalizedConfigDir || !cleaned.startsWith(`${normalizedConfigDir}/`)) {
-    return false;
-  }
-
-  const relativePath = cleaned.slice(`${normalizedConfigDir}/`.length);
-  if (!relativePath || relativePath.includes("/")) {
-    return false;
-  }
-
-  const lowerPath = relativePath.toLowerCase();
-  return TOP_LEVEL_RUNTIME_CONFIG_FILES.has(lowerPath) ||
-    /^workspace.*\.json$/i.test(relativePath);
-}
-
 function isUserConfigurableObsidianSettingFile(path: string, options: VaultSyncPathOptions): boolean {
   const cleaned = cleanPath(path);
   const normalizedConfigDir = cleanPath(options.configDir);
   if (!normalizedConfigDir || !cleaned.startsWith(`${normalizedConfigDir}/`)) {
     return true;
-  }
-  if (isRuntimeObsidianConfigFile(cleaned, normalizedConfigDir)) {
-    return false;
-  }
-
-  const relativeConfigPath = cleaned.slice(`${normalizedConfigDir}/`.length);
-  const configParts = relativeConfigPath.split("/");
-  const configFilename = configParts.at(-1) ?? "";
-  if (configParts[0]?.toLowerCase() === "snippets") {
-    return configParts.length === 2 &&
-      configFilename.toLowerCase().endsWith(".css") &&
-      !NOISY_CONFIG_FILE_PATTERNS.some((pattern) => pattern.test(configFilename));
   }
 
   const pluginsDir = `${normalizedConfigDir}/plugins`;
@@ -177,6 +137,23 @@ export function shouldScanVaultFolder(path: string, options: VaultSyncPathOption
   if (!cleaned) {
     return true;
   }
+  const configDir = cleanPath(options.configDir);
+  if (configDir && (cleaned === configDir || cleaned.startsWith(`${configDir}/`))) {
+    const pluginsDir = `${configDir}/plugins`;
+    if (cleaned === configDir || cleaned === pluginsDir) {
+      return true;
+    }
+    if (!cleaned.startsWith(`${pluginsDir}/`)) {
+      return false;
+    }
+    const relativePath = cleaned.slice(`${pluginsDir}/`.length);
+    const parts = relativePath.split("/").filter(Boolean);
+    if (parts.length !== 1) {
+      return false;
+    }
+    const pluginId = parts[0] ?? "";
+    return !!pluginId && pluginId.toLowerCase() !== cleanPath(options.pluginId).toLowerCase();
+  }
   if (cleaned === ".trash" || cleaned.startsWith(".trash/")) {
     return false;
   }
@@ -196,21 +173,16 @@ export function shouldScanLowIntensityConfigFolder(path: string, options: VaultS
     return true;
   }
 
-  const relativePath = cleaned.startsWith(`${configDir}/`) ? cleaned.slice(`${configDir}/`.length) : "";
-  if (!relativePath) {
+  const pluginsDir = `${configDir}/plugins`;
+  if (cleaned === pluginsDir) {
+    return true;
+  }
+  if (!cleaned.startsWith(`${pluginsDir}/`)) {
     return false;
   }
 
-  const parts = relativePath.split("/");
-  if (parts.length === 1) {
-    return parts[0].toLowerCase() === "plugins" || parts[0].toLowerCase() === "snippets";
-  }
-
-  if (parts[0].toLowerCase() === "plugins") {
-    return parts.length === 2;
-  }
-
-  return false;
+  const relativePath = cleaned.slice(`${pluginsDir}/`.length);
+  return relativePath.split("/").filter(Boolean).length === 1;
 }
 
 export function shouldSyncVaultPath(path: string, options: VaultSyncPathOptions): boolean {
@@ -242,4 +214,8 @@ export function shouldSyncVaultPath(path: string, options: VaultSyncPathOptions)
   }
 
   return true;
+}
+
+export function shouldApplyRemoteVaultPath(path: string, options: VaultSyncPathOptions): boolean {
+  return shouldSyncVaultPath(path, options);
 }

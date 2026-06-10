@@ -3,7 +3,6 @@ import { decryptCredentialPayload, encryptCredentialPayload } from "./credential
 import { DocumentReconstructor, type ReconstructionBatchSummary } from "./document-reconstructor";
 import { applyReadyPreviewsToLiveVault, type LiveVaultApplyResult } from "./live-vault-applier";
 import { exportReadyPreviews } from "./preview-exporter";
-import { planObsidianConfigRefresh, shouldAutoApplyPluginRefresh, shouldDeferMobileConfigApply, shouldPromptForAppReload } from "./obsidian-config-refresh";
 import { PluginReloadPromptModal } from "./plugin-reload-prompt-modal";
 import { ServerCredentialsModal } from "./server-credentials-modal";
 import { applyReadyPreviewsToStaging, type StagingApplyResult } from "./staging-applier";
@@ -57,7 +56,8 @@ import { EMBEDDED_SYNC_WORKER_SOURCE } from "./embedded-sync-worker-source";
 import { CalmStatusPresenter } from "./status-presenter";
 import type { LiveSyncBuildOptions, LocalFileSnapshot } from "./livesync-document-builder";
 import { CouchDbClient, CouchDbClientError, type RemoteInspection } from "./couchdb-client";
-import { isLiveSyncChunkDocument, type LiveSyncChunkDocument } from "./livesync-constants";
+import { isLiveSyncChunkDocument, isLiveSyncFileDocument, type LiveSyncChunkDocument } from "./livesync-constants";
+import { decryptFileDocument } from "./document-transform";
 import { verifyCouchDbConnection } from "./connection-verifier";
 import { buildRuntimeSmokeCheckReport } from "./runtime-smoke-check";
 import { buildRuntimeCapabilityReport, type RuntimeCapabilitySnapshot } from "./runtime-capabilities";
@@ -77,6 +77,7 @@ import {
 } from "./session-credential-cache";
 import {
   isTextSyncPath,
+  shouldApplyRemoteVaultPath,
   shouldScanLowIntensityConfigFolder,
   shouldScanVaultFolder,
   shouldSyncVaultPath,
@@ -114,18 +115,6 @@ type VaultListAdapter = {
   readBinary?(path: string): Promise<ArrayBuffer>;
 };
 
-type ObsidianPluginManager = {
-  enabledPlugins?: Set<string> | string[];
-  plugins?: Record<string, unknown>;
-  manifests?: Record<string, unknown>;
-  loadManifests?(): Promise<void> | void;
-  reloadPlugin?(id: string): Promise<void> | void;
-  unloadPlugin?(id: string): Promise<void> | void;
-  loadPlugin?(id: string): Promise<void> | void;
-  enablePlugin?(id: string): Promise<void> | void;
-  disablePlugin?(id: string): Promise<void> | void;
-};
-
 function hasLiveApplyActivity(result: LiveVaultApplyResult): boolean {
   return result.applied + result.merged + result.deleted + result.skipped + result.waiting + result.backedUp + result.conflicted + result.failed > 0;
 }
@@ -134,25 +123,14 @@ function applyReasonSummary(label: string, reasons: string[]): string {
   return reasons.length > 0 ? ` ${label}: ${reasons.join("; ")}` : "";
 }
 
-function pathListSummary(paths: string[], limit = 12): string {
-  const shown = paths.slice(0, limit);
-  const remaining = paths.length - shown.length;
-  return `${shown.join("; ")}${remaining > 0 ? `; and ${remaining} more` : ""}`;
-}
-
-function hasRecordKey(record: Record<string, unknown>, key: string): boolean {
-  return Object.hasOwn(record, key);
-}
-
 const FAST_CONFIG_SYNC_DELAY_MS = 2000;
-const OBSIDIAN_PLUGIN_REFRESH_DELAY_MS = 5000;
-const OBSIDIAN_PLUGIN_REFRESH_RETRY_MS = 5000;
-const OBSIDIAN_PLUGIN_REFRESH_MAX_ATTEMPTS = 4;
 const SNAPSHOT_CACHE_MAX_ENTRIES = 96;
 const SNAPSHOT_CACHE_MAX_BYTES = 12 * 1024 * 1024;
 const SNAPSHOT_CACHE_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const CONFIG_FALLBACK_SCAN_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_AUTOMATIC_APPLY_BATCH_FILES = 3;
+const REMOTE_APPLY_LOOKAHEAD_FILES = 100;
+const EXCLUDED_REMOTE_APPLY_CLEANUP_LIMIT = 500;
 const SYNC_CONTINUATION_DELAY_MS = 3000;
 const APPLY_SETTLE_DELAY_MS = 16;
 
@@ -187,18 +165,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   private lastForegroundRemoteCheckAt = 0;
   private localSnapshotCache = new Map<string, SnapshotCacheEntry>();
   private localSnapshotCacheBytes = 0;
-  private layoutReadyAt = 0;
-  private obsidianPluginRefreshTimer?: number;
-  private obsidianPluginRefreshAttempts = 0;
-  private pendingObsidianPluginRefreshPaths = new Set<string>();
+  private lastMobilePluginSettingsReloadPromptKey = "";
+  private mobilePluginSettingsReloadPromptOpen = false;
   private lastConfigFallbackScanAt = 0;
   private configFallbackScanPromise?: Promise<LocalStoreSummary | undefined>;
-  private lastPluginReloadPromptKey = "";
-  private pendingMobileReloadSensitiveApplyPaths = new Set<string>();
-  private approvedMobileReloadSensitiveApplyPaths = new Set<string>();
-  private mobileReloadAfterApprovedApply = false;
-  private lastMobileDeferredConfigApplyKey = "";
-  private pluginReloadPromptOpen = false;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -261,7 +231,6 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.reschedulePeriodicSync();
 
     this.app.workspace.onLayoutReady(() => {
-      this.layoutReadyAt = Date.now();
       if (this.configuredAtLoad && this.settings.syncOnStart && this.canRunAutomaticSync()) {
         this.log("Startup sync requested immediately.");
         this.scheduler.request("startup", true);
@@ -280,7 +249,6 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     this.statusPresenter?.cancel();
     this.clearCompletedStatusTimer();
     this.clearRuntimeDiagnosticsSaveTimer();
-    this.clearObsidianPluginRefreshTimer();
     this.clearPeriodicTimer();
     this.clearVaultChangeBatchTimer();
     this.clearLocalSnapshotCache();
@@ -333,13 +301,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       autoUnlockCredentials: true,
       credentialUnlockKey: loaded?.credentialUnlockKey ?? DEFAULT_SETTINGS.credentialUnlockKey,
       keepUnlockedDuringSession: true,
-      mobileApprovedConfigApplyPaths: Array.isArray(loaded?.mobileApprovedConfigApplyPaths)
-        ? loaded.mobileApprovedConfigApplyPaths.filter((path): path is string => typeof path === "string")
-        : DEFAULT_SETTINGS.mobileApprovedConfigApplyPaths,
-      mobileDeferredConfigPromptKey: loaded?.mobileDeferredConfigPromptKey ?? DEFAULT_SETTINGS.mobileDeferredConfigPromptKey,
       settingsTab: loaded?.settingsTab ?? DEFAULT_SETTINGS.settingsTab
     };
-    this.approvedMobileReloadSensitiveApplyPaths = new Set(this.settings.mobileApprovedConfigApplyPaths.map((path) => normalizePath(path)));
     if (loaded?.maxPushChangesPerSync === undefined || loaded.maxPushChangesPerSync <= 4) {
       this.settings.maxPushChangesPerSync = DEFAULT_SETTINGS.maxPushChangesPerSync;
     }
@@ -1447,39 +1410,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
   }
 
   private async shouldAutoApplyPull(databaseName: string): Promise<boolean> {
-    if (!Platform.isMobile) {
-      return true;
-    }
-    const store = this.getLocalStore(databaseName);
-    const client = new CouchDbClient(this.getRuntimeSettings().couchDb);
-    const reconstructor = new DocumentReconstructor(store, this.documentTransformOptions(), {
-      yieldToUi: () => this.yieldToUi(),
-      loadMissingChunks: (ids) => this.loadAndCacheMissingChunks(store, client, ids)
-    });
-    const summary = await reconstructor.previewPending(this.applyBatchLimit());
-    await this.updateLocalPreview(summary);
-    if (summary.previews.length === 0) {
-      return true;
-    }
-
-    const applyableNonConfig = summary.previews.some((preview) =>
-      !shouldDeferMobileConfigApply(normalizePath(preview.path), this.app.vault.configDir, this.manifest.id)
-    );
-    const approvedConfig = summary.previews.some((preview) => {
-      const path = normalizePath(preview.path);
-      return shouldDeferMobileConfigApply(path, this.app.vault.configDir, this.manifest.id) &&
-        this.approvedMobileReloadSensitiveApplyPaths.has(path);
-    });
-    if (applyableNonConfig || approvedConfig) {
-      return true;
-    }
-
-    for (const preview of summary.previews) {
-      this.pendingMobileReloadSensitiveApplyPaths.add(normalizePath(preview.path));
-    }
-    await this.promptForDeferredMobileReloadSensitiveApply();
-    await this.updateLocalQueue(await store.getSummary());
-    return false;
+    void databaseName;
+    return true;
   }
 
   private async applyPulledChanges(databaseName: string, client?: SyncRemoteClient): Promise<LiveVaultApplyResult> {
@@ -1538,16 +1470,18 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     context: PullOperationContext,
     limit: number
   ): Promise<LiveVaultApplyResult> {
-    const summary = await context.reconstructor.previewPending(limit);
-    const previews = this.orderPreviewsForMobileApply(summary.previews);
-    await this.updateLocalPreview(summary);
     const markedApplyIds = new Set<string>();
+    const clearedExcluded = await this.clearExcludedRemoteApplyItems(context.store, EXCLUDED_REMOTE_APPLY_CLEANUP_LIMIT);
+    for (const id of clearedExcluded.ids) {
+      markedApplyIds.add(id);
+    }
+    const summary = await context.reconstructor.previewPending(this.remoteApplyLookaheadLimit());
+    const previews = this.orderPreviewsForRemoteApply(summary.previews).slice(0, limit);
+    await this.updateLocalPreview(summary);
     const result = await this.withSuppressedVaultEvents(() => applyReadyPreviewsToLiveVault(this.app.vault, previews, {
       configDir: this.app.vault.configDir,
       conflictFolder: this.conflictFolder(),
-      shouldApplyPath: (path) => this.shouldSyncPath(path),
-      deferApplyPath: (path) => this.deferMobileReloadSensitiveApplyPath(path),
-      markAppliedBeforeApplyPath: (path) => this.shouldPreMarkApprovedMobileConfigApply(path),
+      shouldApplyPath: (path) => this.shouldApplyRemotePath(path),
       markAppliedIds: async (ids) => {
         const nextIds = ids.filter((id) => !markedApplyIds.has(id));
         if (nextIds.length === 0) {
@@ -1561,6 +1495,13 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       yieldToUi: () => this.yieldToUi(),
       settleAfterApply: () => this.settleAfterVaultWrite()
     }));
+    if (clearedExcluded.ids.length > 0) {
+      result.skipped += clearedExcluded.ids.length;
+      result.skippedReasons.push(...clearedExcluded.reasons);
+      this.log(
+        `Cleared ${clearedExcluded.ids.length} old pulled Obsidian configuration item${clearedExcluded.ids.length === 1 ? "" : "s"} that are outside the current sync allow-list.`
+      );
+    }
     const remainingAppliedIds = [...result.appliedIds, ...result.skippedIds].filter((id) => !markedApplyIds.has(id));
     if (remainingAppliedIds.length > 0) {
       await context.store.markApplied(remainingAppliedIds);
@@ -1575,405 +1516,92 @@ export default class LightweightLiveSyncPlugin extends Plugin {
       );
     }
     await this.updateLocalLiveApply(result);
-    await this.promptForDeferredMobileReloadSensitiveApply();
-    await this.refreshObsidianAfterSyncedConfigChanges(result.changedPaths);
+    await this.promptForMobilePluginSettingsReload(result.changedPaths);
     await this.updateLocalQueue(await context.store.getSummary());
     return result;
   }
 
-  private orderPreviewsForMobileApply(previews: ReconstructionBatchSummary["previews"]): ReconstructionBatchSummary["previews"] {
-    if (!Platform.isMobile) {
-      return previews;
+  private async clearExcludedRemoteApplyItems(
+    store: LocalDocumentStore,
+    limit: number
+  ): Promise<{ ids: string[]; reasons: string[] }> {
+    const pending = await store.getPendingApplyBatch(limit);
+    const ids: string[] = [];
+    const reasons: string[] = [];
+    for (const cached of pending) {
+      await this.yieldToUi();
+      if (!isLiveSyncFileDocument(cached.doc)) {
+        continue;
+      }
+      const doc = await decryptFileDocument(cached.doc, this.documentTransformOptions()).catch(() => undefined);
+      const path = doc?.path ? normalizePath(doc.path) : "";
+      if (!path || !this.isConfigSyncPath(path) || this.shouldApplyRemotePath(path)) {
+        continue;
+      }
+      ids.push(cached.id);
+      if (reasons.length < 10) {
+        reasons.push(`${path}: Excluded from sync.`);
+      }
     }
+    if (ids.length > 0) {
+      await store.markApplied(ids);
+    }
+    return { ids, reasons };
+  }
+
+  private remoteApplyLookaheadLimit(): number {
+    return Math.max(this.applyBatchLimit(), REMOTE_APPLY_LOOKAHEAD_FILES);
+  }
+
+  private orderPreviewsForRemoteApply(previews: ReconstructionBatchSummary["previews"]): ReconstructionBatchSummary["previews"] {
     const normal: ReconstructionBatchSummary["previews"] = [];
-    const reloadSensitive: ReconstructionBatchSummary["previews"] = [];
+    const excludedConfig: ReconstructionBatchSummary["previews"] = [];
     for (const preview of previews) {
       const normalizedPath = normalizePath(preview.path);
-      if (shouldDeferMobileConfigApply(normalizedPath, this.app.vault.configDir, this.manifest.id)) {
-        reloadSensitive.push(preview);
+      if (this.isConfigSyncPath(normalizedPath) && !this.shouldApplyRemotePath(normalizedPath)) {
+        excludedConfig.push(preview);
       } else {
         normal.push(preview);
       }
     }
-    if (normal.length > 0 && reloadSensitive.length > 0) {
+    if (normal.length > 0 && excludedConfig.length > 0) {
       this.log(
-        `Applying ${normal.length} ordinary remote update${normal.length === 1 ? "" : "s"} before ${reloadSensitive.length} mobile reload-sensitive configuration update${reloadSensitive.length === 1 ? "" : "s"}.`
+        `Applying ${normal.length} syncable remote update${normal.length === 1 ? "" : "s"} before clearing ${excludedConfig.length} excluded Obsidian configuration update${excludedConfig.length === 1 ? "" : "s"}.`
       );
     }
-    return [...normal, ...reloadSensitive];
+    return [...normal, ...excludedConfig];
   }
 
-  private deferMobileReloadSensitiveApplyPath(path: string): string | undefined {
-    const normalized = normalizePath(path);
+  private async promptForMobilePluginSettingsReload(changedPaths: string[]): Promise<void> {
     if (!Platform.isMobile) {
-      return undefined;
-    }
-    if (this.approvedMobileReloadSensitiveApplyPaths.has(normalized)) {
-      return undefined;
-    }
-    if (!shouldDeferMobileConfigApply(normalized, this.app.vault.configDir, this.manifest.id)) {
-      return undefined;
-    }
-    this.pendingMobileReloadSensitiveApplyPaths.add(normalized);
-    return "Waiting for approval before applying Obsidian configuration that can reload the mobile app.";
-  }
-
-  private shouldPreMarkApprovedMobileConfigApply(path: string): boolean {
-    const normalized = normalizePath(path);
-    return Platform.isMobile &&
-      this.approvedMobileReloadSensitiveApplyPaths.has(normalized) &&
-      shouldDeferMobileConfigApply(normalized, this.app.vault.configDir, this.manifest.id);
-  }
-
-  private async promptForDeferredMobileReloadSensitiveApply(): Promise<void> {
-    if (!Platform.isMobile || this.pendingMobileReloadSensitiveApplyPaths.size === 0) {
       return;
     }
-    const paths = [...this.pendingMobileReloadSensitiveApplyPaths].sort((left, right) => left.localeCompare(right));
-    const plan = planObsidianConfigRefresh(paths, this.app.vault.configDir, this.manifest.id);
-    const pauseKey = paths.join("|");
-    if (this.lastMobileDeferredConfigApplyKey !== pauseKey) {
-      this.lastMobileDeferredConfigApplyKey = pauseKey;
-      this.log(
-        `Mobile paused ${paths.length} synced Obsidian configuration update${paths.length === 1 ? "" : "s"} before writing files that can reload the app: ${pathListSummary(paths)}.`
-      );
-    }
-    if (this.settings.mobileDeferredConfigPromptKey === pauseKey) {
+    const paths = [...new Set(changedPaths.map((path) => normalizePath(path)).filter((path) =>
+      this.isConfigSyncPath(path) && this.shouldApplyRemotePath(path)
+    ))].sort((left, right) => left.localeCompare(right));
+    if (paths.length === 0) {
       return;
     }
-    const applyNow = await this.promptForPluginReload(plan, paths, true);
-    if (!applyNow) {
-      this.settings = {
-        ...this.settings,
-        mobileDeferredConfigPromptKey: pauseKey
-      };
-      await this.saveSettingsAndReschedule();
-      this.log(
-        `Paused ${paths.length} synced Obsidian configuration update${paths.length === 1 ? "" : "s"} on mobile because applying them can reload the app. Notes, attachments, and plugin settings data can continue syncing.`
-      );
+    const promptKey = paths.join("|");
+    if (this.lastMobilePluginSettingsReloadPromptKey === promptKey || this.mobilePluginSettingsReloadPromptOpen) {
       return;
     }
-
-    for (const path of paths) {
-      this.approvedMobileReloadSensitiveApplyPaths.add(path);
-    }
-    this.mobileReloadAfterApprovedApply = true;
-    this.settings = {
-      ...this.settings,
-      mobileApprovedConfigApplyPaths: [...this.approvedMobileReloadSensitiveApplyPaths].sort((left, right) => left.localeCompare(right)),
-      mobileDeferredConfigPromptKey: ""
-    };
-    await this.saveSettingsAndReschedule();
-    this.pendingMobileReloadSensitiveApplyPaths.clear();
-    this.lastMobileDeferredConfigApplyKey = "";
-    this.lastPluginReloadPromptKey = "";
-    this.log("Synced plugin/config updates approved. Applying them in the next sync pass, then the app will reload if needed.");
-    window.setTimeout(() => {
-      this.scheduler.request("vault-change", true);
-    }, 0);
-  }
-
-  private async refreshObsidianAfterSyncedConfigChanges(changedPaths: string[]): Promise<void> {
-    const plan = planObsidianConfigRefresh(changedPaths, this.app.vault.configDir, this.manifest.id);
-    const hasWork =
-      plan.communityPluginsChanged ||
-      plan.appSettingsChanged.length > 0 ||
-      plan.otherConfigChanged.length > 0 ||
-      plan.pluginsToReload.length > 0 ||
-      plan.ownPluginChanged;
-    if (!hasWork) {
-      return;
-    }
-
-    if (plan.appSettingsChanged.length > 0) {
-      this.notifyObsidianSettingsChanged(plan.appSettingsChanged);
-    }
-    if (shouldAutoApplyPluginRefresh(plan, Platform.isMobile)) {
-      this.queueDeferredObsidianPluginRefresh(changedPaths);
-    } else if (plan.communityPluginsChanged || plan.pluginsToReload.length > 0) {
-      this.log("Synced community plugin settings were written without reloading the app. Restart Obsidian later if you need plugin enablement changes to take effect immediately.");
-    }
-    if (Platform.isMobile && this.mobileReloadAfterApprovedApply && hasWork) {
-      this.mobileReloadAfterApprovedApply = false;
-      this.approvedMobileReloadSensitiveApplyPaths.clear();
-      this.settings = {
-        ...this.settings,
-        mobileApprovedConfigApplyPaths: [],
-        mobileDeferredConfigPromptKey: ""
-      };
-      await this.saveSettingsAndReschedule();
-      this.log("Reloading the app after applying approved synced plugin/config updates.");
-      window.setTimeout(() => {
-        window.location.reload();
-      }, 100);
-      return;
-    }
-    if (shouldPromptForAppReload(plan, Platform.isMobile)) {
-      const reloadNow = await this.promptForPluginReload(plan, changedPaths, false);
-      if (reloadNow) {
-        this.log("Reloading the app after synced plugin changes, as requested.");
-        window.setTimeout(() => {
-          window.location.reload();
-        }, 100);
-      }
-    } else if (plan.ownPluginChanged) {
-      this.log("Synced Light-LiveSync plugin files changed. Reload the app or disable/enable Light-LiveSync to use the new plugin bundle.");
-    }
-  }
-
-  private async promptForPluginReload(
-    plan: ReturnType<typeof planObsidianConfigRefresh>,
-    changedPaths: string[],
-    pendingApply: boolean
-  ): Promise<boolean> {
-    const promptKey = [
-      pendingApply ? "pending" : "written",
-      plan.communityPluginsChanged ? "community" : "",
-      plan.ownPluginChanged ? "own" : "",
-      ...plan.pluginsToReload,
-      ...changedPaths.map((path) => normalizePath(path)).sort()
-    ].filter(Boolean).join("|");
-    if (!promptKey || this.lastPluginReloadPromptKey === promptKey) {
-      return false;
-    }
-    if (this.pluginReloadPromptOpen) {
-      return false;
-    }
-    this.lastPluginReloadPromptKey = promptKey;
-
-    this.pluginReloadPromptOpen = true;
+    this.lastMobilePluginSettingsReloadPromptKey = promptKey;
+    this.mobilePluginSettingsReloadPromptOpen = true;
     const reloadNow = await new PluginReloadPromptModal(this.app, {
-        changedPluginCount: plan.pluginsToReload.length,
-        communityPluginListChanged: plan.communityPluginsChanged,
-        appSettingsChangedCount: plan.appSettingsChanged.length,
-        otherConfigChangedCount: plan.otherConfigChanged.length,
-        ownPluginChanged: plan.ownPluginChanged,
-        pendingApply
+        changedSettingsCount: paths.length
       }).openAndWait()
       .finally(() => {
-        this.pluginReloadPromptOpen = false;
+        this.mobilePluginSettingsReloadPromptOpen = false;
       });
     if (!reloadNow) {
-      this.log("Synced plugin changes are ready. Reload later from the prompt or restart the app when convenient.");
-      return false;
-    }
-
-    return true;
-  }
-
-  private notifyObsidianSettingsChanged(paths: string[]): void {
-    const workspace = this.app.workspace as unknown as { trigger?: (name: string) => void };
-    workspace.trigger?.("layout-change");
-    this.log(`Synced Obsidian settings updated: ${paths.join(", ")}.`);
-  }
-
-  private queueDeferredObsidianPluginRefresh(changedPaths: string[]): void {
-    for (const path of changedPaths) {
-      this.pendingObsidianPluginRefreshPaths.add(path);
-    }
-    this.obsidianPluginRefreshAttempts = 0;
-    this.scheduleDeferredObsidianPluginRefresh(this.deferredObsidianPluginRefreshDelayMs());
-  }
-
-  private deferredObsidianPluginRefreshDelayMs(): number {
-    if (this.layoutReadyAt <= 0) {
-      return OBSIDIAN_PLUGIN_REFRESH_DELAY_MS;
-    }
-    return Math.max(1000, OBSIDIAN_PLUGIN_REFRESH_DELAY_MS - (Date.now() - this.layoutReadyAt));
-  }
-
-  private scheduleDeferredObsidianPluginRefresh(delayMs: number): void {
-    this.clearObsidianPluginRefreshTimer();
-    this.obsidianPluginRefreshTimer = window.setTimeout(() => {
-      void this.runDeferredObsidianPluginRefresh();
-    }, delayMs);
-    this.registerInterval(this.obsidianPluginRefreshTimer);
-  }
-
-  private clearObsidianPluginRefreshTimer(): void {
-    if (this.obsidianPluginRefreshTimer !== undefined) {
-      window.clearTimeout(this.obsidianPluginRefreshTimer);
-      this.obsidianPluginRefreshTimer = undefined;
-    }
-  }
-
-  private async runDeferredObsidianPluginRefresh(): Promise<void> {
-    const changedPaths = [...this.pendingObsidianPluginRefreshPaths];
-    this.pendingObsidianPluginRefreshPaths.clear();
-    this.obsidianPluginRefreshTimer = undefined;
-    if (changedPaths.length === 0) {
+      this.log(`Synced ${paths.length} plugin settings/data file${paths.length === 1 ? "" : "s"} on mobile. Reload later if the affected plugin needs it.`);
       return;
     }
-
-    const shouldRetry = await this.applyDeferredObsidianPluginRefresh(changedPaths);
-    if (!shouldRetry) {
-      this.obsidianPluginRefreshAttempts = 0;
-      return;
-    }
-
-    if (this.obsidianPluginRefreshAttempts >= OBSIDIAN_PLUGIN_REFRESH_MAX_ATTEMPTS) {
-      this.log("Synced community plugin refresh could not finish automatically. Reload the app or disable/enable the affected plugin once Obsidian has finished loading.");
-      this.obsidianPluginRefreshAttempts = 0;
-      return;
-    }
-
-    this.obsidianPluginRefreshAttempts++;
-    for (const path of changedPaths) {
-      this.pendingObsidianPluginRefreshPaths.add(path);
-    }
-    this.scheduleDeferredObsidianPluginRefresh(OBSIDIAN_PLUGIN_REFRESH_RETRY_MS);
-  }
-
-  private async applyDeferredObsidianPluginRefresh(changedPaths: string[]): Promise<boolean> {
-    const plan = planObsidianConfigRefresh(changedPaths, this.app.vault.configDir, this.manifest.id);
-    if (!shouldAutoApplyPluginRefresh(plan, Platform.isMobile)) {
-      return false;
-    }
-    const pluginManager = (this.app as unknown as { plugins?: ObsidianPluginManager }).plugins;
-    let shouldRetry = false;
-    if (plan.communityPluginsChanged) {
-      shouldRetry = await this.refreshCommunityPluginEnablement(pluginManager) || shouldRetry;
-    }
-    if (plan.pluginsToReload.length > 0) {
-      shouldRetry = await this.reloadSyncedPlugins(pluginManager, plan.pluginsToReload) || shouldRetry;
-    }
-    return shouldRetry;
-  }
-
-  private async refreshCommunityPluginEnablement(pluginManager: ObsidianPluginManager | undefined): Promise<boolean> {
-    const desired = await this.readCommunityPluginList();
-    if (!desired || !pluginManager) {
-      this.log("Synced community plugin list changed. Waiting for Obsidian's plugin manager before applying plugin enablement changes.");
-      return !!desired;
-    }
-
-    await pluginManager.loadManifests?.();
-    const enabled = this.enabledCommunityPlugins(pluginManager);
-    const desiredToEnable = [...desired].filter((id) => id !== this.manifest.id && !enabled.has(id)).sort();
-    const waitingForManifest = desiredToEnable.filter((id) => !this.pluginManifestAvailable(pluginManager, id));
-    const toEnable = desiredToEnable.filter((id) => !waitingForManifest.includes(id));
-    const toDisable = [...enabled].filter((id) => id !== this.manifest.id && !desired.has(id)).sort();
-
-    if (waitingForManifest.length > 0) {
-      this.log(`Synced community plugin list is waiting for Obsidian to discover: ${waitingForManifest.join(", ")}.`);
-    }
-
-    for (const id of toDisable) {
-      if (typeof pluginManager.disablePlugin !== "function") {
-        this.log(`Community plugin ${id} should be disabled by synced settings, but Obsidian did not expose a disable action.`);
-        continue;
-      }
-      await pluginManager.disablePlugin(id);
-      await this.yieldToUi();
-    }
-
-    for (const id of toEnable) {
-      if (typeof pluginManager.enablePlugin !== "function") {
-        this.log(`Community plugin ${id} should be enabled by synced settings, but Obsidian did not expose an enable action.`);
-        continue;
-      }
-      await pluginManager.enablePlugin(id);
-      await this.yieldToUi();
-    }
-
-    this.log(
-      `Synced community plugin list refreshed. Enabled ${toEnable.length}, disabled ${toDisable.length}.`
-    );
-    return waitingForManifest.length > 0;
-  }
-
-  private async readCommunityPluginList(): Promise<Set<string> | undefined> {
-    const adapter = this.app.vault.adapter as VaultListAdapter;
-    if (typeof adapter.read !== "function") {
-      return undefined;
-    }
-    try {
-      const raw = await adapter.read(`${normalizePath(this.app.vault.configDir)}/community-plugins.json`);
-      const parsed = JSON.parse(raw) as unknown;
-      if (!Array.isArray(parsed)) {
-        return undefined;
-      }
-      return new Set(parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0));
-    } catch (error) {
-      this.log(`Could not read synced community plugin list: ${error instanceof Error ? error.message : String(error)}`);
-      return undefined;
-    }
-  }
-
-  private enabledCommunityPlugins(pluginManager: ObsidianPluginManager): Set<string> {
-    if (pluginManager.enabledPlugins instanceof Set) {
-      return new Set([...pluginManager.enabledPlugins].filter((id): id is string => typeof id === "string"));
-    }
-    if (Array.isArray(pluginManager.enabledPlugins)) {
-      return new Set(pluginManager.enabledPlugins.filter((id): id is string => typeof id === "string"));
-    }
-    return new Set(Object.keys(pluginManager.plugins ?? {}));
-  }
-
-  private async reloadSyncedPlugins(pluginManager: ObsidianPluginManager | undefined, pluginIds: string[]): Promise<boolean> {
-    if (!pluginManager) {
-      this.log(`Synced plugin settings changed for ${pluginIds.join(", ")}. Waiting for Obsidian's plugin manager before reloading affected plugins.`);
-      return true;
-    }
-    await pluginManager.loadManifests?.();
-    const enabled = this.enabledCommunityPlugins(pluginManager);
-    let reloaded = 0;
-    let shouldRetry = false;
-    for (const id of pluginIds) {
-      if (!enabled.has(id)) {
-        continue;
-      }
-      if (!this.pluginManifestAvailable(pluginManager, id)) {
-        this.log(`Synced plugin ${id} changed, but Obsidian has not discovered its manifest yet. Waiting before reload.`);
-        shouldRetry = true;
-        continue;
-      }
-      try {
-        await this.reloadOnePlugin(pluginManager, id);
-        reloaded++;
-        await this.yieldToUi();
-      } catch (error) {
-        this.log(`Could not reload synced plugin ${id}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-    if (reloaded > 0) {
-      this.log(`Reloaded ${reloaded} synced plugin${reloaded === 1 ? "" : "s"} after remote settings update.`);
-    }
-    return shouldRetry;
-  }
-
-  private async reloadOnePlugin(pluginManager: ObsidianPluginManager, id: string): Promise<void> {
-    if (!this.pluginLoaded(pluginManager, id) && typeof pluginManager.enablePlugin === "function") {
-      await pluginManager.enablePlugin(id);
-      return;
-    }
-    if (typeof pluginManager.reloadPlugin === "function") {
-      await pluginManager.reloadPlugin(id);
-      return;
-    }
-    if (typeof pluginManager.unloadPlugin === "function" && typeof pluginManager.loadPlugin === "function") {
-      await pluginManager.unloadPlugin(id);
-      await pluginManager.loadPlugin(id);
-      return;
-    }
-    if (typeof pluginManager.disablePlugin === "function" && typeof pluginManager.enablePlugin === "function") {
-      await pluginManager.disablePlugin(id);
-      await pluginManager.enablePlugin(id);
-      return;
-    }
-    throw new Error("No compatible Obsidian plugin reload action was available.");
-  }
-
-  private pluginManifestAvailable(pluginManager: ObsidianPluginManager, id: string): boolean {
-    const manifests = pluginManager.manifests;
-    if (!manifests) {
-      return true;
-    }
-    return hasRecordKey(manifests, id);
-  }
-
-  private pluginLoaded(pluginManager: ObsidianPluginManager, id: string): boolean {
-    return hasRecordKey(pluginManager.plugins ?? {}, id);
+    this.log("Reloading the mobile app after synced plugin settings/data changes, as requested.");
+    window.setTimeout(() => {
+      window.location.reload();
+    }, 100);
   }
 
   private applyBatchLimit(): number {
@@ -2287,16 +1915,13 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private async updateLocalQueue(summary: LocalStoreSummary): Promise<void> {
     const current = this.settings.localQueue;
-    const shouldClearMobileApproval = summary.pendingApply === 0 &&
-      (this.settings.mobileApprovedConfigApplyPaths.length > 0 || !!this.settings.mobileDeferredConfigPromptKey);
     const unchanged =
       current.lastRemoteSeq === summary.lastRemoteSeq &&
       current.files === summary.files &&
       current.chunks === summary.chunks &&
       current.deleted === summary.deleted &&
       current.pendingApply === summary.pendingApply &&
-      current.pendingPush === summary.pendingPush &&
-      !shouldClearMobileApproval;
+      current.pendingPush === summary.pendingPush;
     if (unchanged) {
       return;
     }
@@ -2311,15 +1936,8 @@ export default class LightweightLiveSyncPlugin extends Plugin {
     };
     this.settings = {
       ...this.settings,
-      localQueue,
-      mobileApprovedConfigApplyPaths: shouldClearMobileApproval ? [] : this.settings.mobileApprovedConfigApplyPaths,
-      mobileDeferredConfigPromptKey: shouldClearMobileApproval ? "" : this.settings.mobileDeferredConfigPromptKey
+      localQueue
     };
-    if (shouldClearMobileApproval) {
-      this.approvedMobileReloadSensitiveApplyPaths.clear();
-      this.mobileReloadAfterApprovedApply = false;
-      this.lastMobileDeferredConfigApplyKey = "";
-    }
     this.scheduleRuntimeDiagnosticsSave();
   }
 
@@ -2911,6 +2529,10 @@ export default class LightweightLiveSyncPlugin extends Plugin {
 
   private shouldSyncPath(path: string): boolean {
     return shouldSyncVaultPath(path, this.syncPathOptions());
+  }
+
+  private shouldApplyRemotePath(path: string): boolean {
+    return shouldApplyRemoteVaultPath(path, this.syncPathOptions());
   }
 
   private syncPathOptions(): VaultSyncPathOptions {

@@ -6,15 +6,15 @@ It is a fork-inspired rebuild of [Self-hosted LiveSync](https://github.com/vrtmr
 
 ## What It Does
 
-- Syncs notes, PDFs, attachments, configuration files, and plugin data through a self-hosted CouchDB backend.
+- Syncs notes, PDFs, attachments, ordinary vault files, and top-level user settings/data JSON files for other community plugins through a self-hosted CouchDB backend.
 - Keeps compatibility with the familiar `obsidian://setuplivesync?settings=...` setup URI flow.
 - Requires end-to-end encryption by default.
 - Batches local edits briefly by default so rapid typing does not spam the server.
 - Automatically scans and queues the current vault on first setup/startup sync when the remote vault is empty, so first-time uploads do not depend on fresh edit events or manual intervention.
 - **Sync now** also scans the current vault before syncing, which is useful when you want an immediate full-vault check.
-- Includes vault configuration, hidden files, and other plugin data in automatic and manual full-vault checks.
+- Includes hidden ordinary vault files in automatic and manual full-vault checks while keeping active app configuration out of the sync path for stability.
 - Restores saved credentials automatically on app start so mobile sync can resume without a repeated credential prompt.
-- Syncs vault configuration and plugin data along with notes.
+- Syncs other plugins' top-level user settings/data JSON files, but excludes active app configuration, plugin bundles, generated plugin state, and Light-LiveSync's own folder.
 - Uses 15-second lightweight CouchDB checkpoint checks on desktop and foreground mobile, so other-device edits are picked up faster without repeatedly scanning the vault.
 - Uses periodic sync as a fallback when mobile backgrounding, sleep, or missed file events get in the way.
 - Automatically merges ordinary text edits and creates safety backups before overwrites, merges, deletes, or version restores.
@@ -150,7 +150,7 @@ Use HTTPS, a trusted VPN, or another protected network path for CouchDB. Vault E
 
 The plugin is optimized around minimal work and minimal data movement.
 
-- Edits batch briefly by default, and configuration/plugin changes use a shorter fast path.
+- Edits batch briefly by default, and allowed plugin settings/data changes use a shorter fast path.
 - Multiple edits to the same file collapse into one queued push.
 - Unchanged saves are skipped after a matching upload fingerprint.
 - Recent local file snapshots are kept in memory with size limits, so repeated sync work can avoid reading the same file again when the file metadata has not changed.
@@ -161,7 +161,7 @@ The plugin is optimized around minimal work and minimal data movement.
 - Pulls large pages of CouchDB changes for faster catch-up, then caches them locally in bounded chunks so the UI can stay responsive.
 - Reconstructs binary attachments from their encrypted chunks one piece at a time, so large PDFs do not fail when they span multiple CouchDB documents.
 - Lightweight remote checks run every 15 seconds by default on desktop and foreground mobile.
-- Heavier periodic configuration-folder fallback scans are throttled separately, so fast polling does not repeatedly walk plugin and settings files.
+- Periodic plugin-settings fallback scans are throttled separately, so fast polling does not repeatedly walk active app configuration.
 - Remote changes apply in batches with recovery backups.
 - Previous-file versions reuse existing encrypted CouchDB chunks instead of uploading a separate full copy for every version.
 - Idle periodic checks reuse the saved CouchDB setup and skip extra remote inspection when the local checkpoint and sync parameters are already known.

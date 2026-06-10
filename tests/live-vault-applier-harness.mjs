@@ -155,42 +155,43 @@ const configResult = await applyReadyPreviewsToLiveVault(
   ],
   {
     configDir: ".obsidian",
-    conflictFolder: ".obsidian/plugins/light-livesync/conflicts"
+    conflictFolder: ".obsidian/plugins/light-livesync/conflicts",
+    shouldApplyPath: (path) => path !== ".obsidian/app.json"
   }
 );
 
-assert.equal(configResult.applied, 1);
-assert.equal(configResult.skipped, 0);
-assert.deepEqual(configResult.changedPaths, [".obsidian/app.json"]);
-assert.equal(vault.files.get(".obsidian/app.json"), "{}");
+assert.equal(configResult.applied, 0);
+assert.equal(configResult.skipped, 1);
+assert.deepEqual(configResult.changedPaths, []);
+assert.equal(vault.files.has(".obsidian/app.json"), false);
 
-const deferredAppSettingsResult = await applyReadyPreviewsToLiveVault(
+const deferredNoteResult = await applyReadyPreviewsToLiveVault(
   vault,
   [
     {
-      id: "doc-deferred-app-settings",
-      rev: "1-deferred-app-settings",
-      path: ".obsidian/workspace-mobile.json",
+      id: "doc-deferred-note",
+      rev: "1-deferred-note",
+      path: "notes/deferred.md",
       status: "ready",
       contentType: "text",
-      chunkCount: 1,
-      byteLength: 12,
-      content: "{\"tabs\":[]}"
+      chunkCount: 0,
+      byteLength: 8,
+      content: "deferred"
     }
   ],
   {
     configDir: ".obsidian",
     conflictFolder: ".obsidian/plugins/light-livesync/conflicts",
-    deferApplyPath: (path) => path === ".obsidian/workspace-mobile.json"
-      ? "Waiting for approval before applying Obsidian configuration that can reload the mobile app."
+    deferApplyPath: (path) => path === "notes/deferred.md"
+      ? "Waiting for a later apply pass."
       : undefined
   }
 );
 
-assert.equal(deferredAppSettingsResult.waiting, 1);
-assert.equal(deferredAppSettingsResult.applied, 0);
-assert.deepEqual(deferredAppSettingsResult.changedPaths, []);
-assert.equal(vault.files.has(".obsidian/workspace-mobile.json"), false);
+assert.equal(deferredNoteResult.waiting, 1);
+assert.equal(deferredNoteResult.applied, 0);
+assert.deepEqual(deferredNoteResult.changedPaths, []);
+assert.equal(vault.files.has("notes/deferred.md"), false);
 
 vault.files.set(".obsidian/plugins/calendar/manifest.json", "{\"name\":\"Calendar\"}");
 const deferredPluginAssetResult = await applyReadyPreviewsToLiveVault(
@@ -532,8 +533,8 @@ console.log(JSON.stringify({
   merged: writeResult.merged,
   backups: writeResult.backedUp + deleteResult.backedUp,
   conflicts: writeResult.conflicted + deleteResult.conflicted,
-  configSynced: vault.files.get(".obsidian/app.json") === "{}",
-  deferredAppSettingsWaiting: deferredAppSettingsResult.waiting,
+  excludedAppConfigSkipped: configResult.skipped === 1,
+  deferredNoteWaiting: deferredNoteResult.waiting,
   deferredPluginAssetWaiting: deferredPluginAssetResult.waiting,
   adapterOnlyFilesSync: adapterOnlyResult.failed === 0,
   remoteTextDeleteMerged: remoteTextDeleteResult.merged,

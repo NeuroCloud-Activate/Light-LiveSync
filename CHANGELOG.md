@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.61
+
+- Hardens the `.obsidian` sync boundary for desktop stability: only top-level user settings/data JSON files inside `.obsidian/plugins/<other-plugin>/` are syncable.
+- Excludes top-level app config, workspace state, community plugin enablement, snippets, themes, plugin bundles, nested generated plugin state, noisy cache/log/history files, and Light-LiveSync's own plugin folder.
+- Clears older pulled `.obsidian` records that are now outside the allow-list before chunk reconstruction, preventing old config sync records from looping, fetching content chunks, or blocking ordinary notes, PDFs, attachments, and allowed plugin settings/data files.
+
 ## 0.1.60
 
 - Keeps syncing ordinary vault files, notes, attachments, PDFs, and normal folders while tightening only the `.obsidian` configuration filter.

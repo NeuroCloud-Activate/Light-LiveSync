@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   isTextSyncPath,
+  shouldApplyRemoteVaultPath,
   shouldScanLowIntensityConfigFolder,
   shouldScanVaultFolder,
   shouldSyncVaultPath
@@ -20,7 +21,12 @@ assert.equal(shouldSyncVaultPath(".obsidian/plugins/other-plugin/custom-settings
 
 assert.equal(shouldSyncVaultPath("Notes/hello.md", options), true);
 assert.equal(shouldSyncVaultPath("PDFs/example.pdf", options), true);
-assert.equal(shouldSyncVaultPath(".obsidian/snippets/readable.css", options), true);
+assert.equal(shouldSyncVaultPath(".obsidian/snippets/readable.css", options), false);
+
+assert.equal(shouldApplyRemoteVaultPath("Notes/hello.md", options), true);
+assert.equal(shouldApplyRemoteVaultPath("PDFs/example.pdf", options), true);
+assert.equal(shouldApplyRemoteVaultPath(".obsidian/plugins/other-plugin/data.json", options), true);
+assert.equal(shouldApplyRemoteVaultPath(".obsidian/snippets/readable.css", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/app.json", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/appearance.json", options), false);
 assert.equal(shouldSyncVaultPath(".obsidian/community-plugins.json", options), false);
@@ -51,17 +57,22 @@ assert.equal(shouldSyncVaultPath(".DS_Store", options), false);
 
 assert.equal(shouldScanVaultFolder("", options), true);
 assert.equal(shouldScanVaultFolder(".obsidian", options), true);
+assert.equal(shouldScanVaultFolder(".obsidian/plugins", options), true);
 assert.equal(shouldScanVaultFolder(".obsidian/plugins/other-plugin", options), true);
+assert.equal(shouldScanVaultFolder(".obsidian/plugins/light-livesync", options), false);
 assert.equal(shouldScanVaultFolder(".obsidian/plugins/light-livesync/preview", options), false);
 assert.equal(shouldScanVaultFolder(".obsidian/plugins/Light-LiveSync/Light-LiveSync-main", options), false);
 assert.equal(shouldScanVaultFolder(".obsidian/plugins/Light-LiveSync/Light-LiveSync-main/.github", options), false);
+assert.equal(shouldScanVaultFolder(".obsidian/snippets", options), false);
+assert.equal(shouldScanVaultFolder(".obsidian/themes", options), false);
 assert.equal(shouldScanVaultFolder(".trash", options), false);
 
 assert.equal(shouldScanLowIntensityConfigFolder(".obsidian", options), true);
 assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/plugins", options), true);
 assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/plugins/other-plugin", options), true);
 assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/plugins/other-plugin/cache", options), false);
-assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/snippets", options), true);
+assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/plugins/light-livesync", options), false);
+assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/snippets", options), false);
 assert.equal(shouldScanLowIntensityConfigFolder(".obsidian/themes", options), false);
 assert.equal(shouldScanLowIntensityConfigFolder("Notes", options), false);
 
@@ -75,6 +86,7 @@ console.log(JSON.stringify({
   ok: true,
   syncsVaultFiles: true,
   syncsPluginSettings: true,
+  narrowsObsidianConfigSync: true,
   excludesRuntimeConfig: true,
   excludesOwnVolatileState: true,
   excludesPluginBundles: true,
